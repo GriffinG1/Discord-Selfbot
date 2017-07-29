@@ -17,10 +17,7 @@ from urllib import parse
 from urllib.request import Request, urlopen
 import math
 from math import sqrt
-<<<<<<< HEAD
-=======
 from cogs.utils.dataIO import dataIO
->>>>>>> 9f4050a494713804723029e6a5eaf1b271f91609
 
 '''Module for fun/meme commands commands'''
 
