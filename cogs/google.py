@@ -212,16 +212,6 @@ class Google:
                         await self.bot.send_message(ctx.message.channel, content=None, embed=em)
                     else:
                         await self.bot.send_message(ctx.message.channel, result['items'][item]['link'])
-                        if config['show_search_term'] == "True":
-                            await self.bot.send_message(ctx.message.channel, "Search term: \"" + query + "\"")
-                        if config['show_search_term'] == "False":
-                            await self.bot.send_message(ctx.message.channel, "Search term has been hidden. You can undo this in optional_config.json")
-                        if config['show_search_term'] != "True" and config['show_search_term'] != "False":
-                            await self.bot.send_message(ctx.message.channel, "No setting has been set in optional_config.json. Please set it to True or False.")
-                        em.set_footer(text="Search term: \"" + query + "\"")
-                        await self.bot.send_message(ctx.message.channel, content=None, embed=em)
-                    else:
-                        await self.bot.send_message(ctx.message.channel, result['items'][item]['link'])
                         await self.bot.send_message(ctx.message.channel, "Search term: \"" + query + "\"")
 
 
