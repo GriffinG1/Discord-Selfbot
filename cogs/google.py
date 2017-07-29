@@ -203,7 +203,6 @@ class Google:
                     em = discord.Embed()
                     if embed_perms(ctx.message):
                         em.set_image(url=result['items'][item]['link'])
-<<<<<<< HEAD
                         if config['show_search_term'] == "True":
                             em.set_footer(text="Search term: \"" + query + "\"")
                         if config['show_search_term'] == "False":
@@ -219,13 +218,11 @@ class Google:
                             await self.bot.send_message(ctx.message.channel, "Search term has been hidden. You can undo this in optional_config.json")
                         if config['show_search_term'] != "True" and config['show_search_term'] != "False":
                             await self.bot.send_message(ctx.message.channel, "No setting has been set in optional_config.json. Please set it to True or False.")
-=======
                         em.set_footer(text="Search term: \"" + query + "\"")
                         await self.bot.send_message(ctx.message.channel, content=None, embed=em)
                     else:
                         await self.bot.send_message(ctx.message.channel, result['items'][item]['link'])
                         await self.bot.send_message(ctx.message.channel, "Search term: \"" + query + "\"")
->>>>>>> 9f4050a494713804723029e6a5eaf1b271f91609
 
 
 def setup(bot):
