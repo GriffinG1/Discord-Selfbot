@@ -12,7 +12,6 @@ import re
 import traceback
 import argparse
 import os
-import ctypes
 import logging
 import logging.handlers
 from json import load, dump
@@ -44,6 +43,7 @@ _test_run = args.test_run
 _force_mac = args.force_mac
 _reset_cfg = args.reset_config
 _silent = args.silent
+_force_admin = False
 
 
 if _test_run:
@@ -56,8 +56,8 @@ if _test_run:
                         fields = json.load(template)
                         json.dump(fields, g, sort_keys=True, indent=4)
     except:
-        pass
-
+        print('Something when wrong. Check for missing sample files') # only visible in Travis
+        pass # duo to some sample files sometimes missing passing it will make sure nothing goes wrong
     print("Quitting: test run")
     exit(0)
 
@@ -91,7 +91,7 @@ def Wizard():
     print("-------------------------------------------------------------")
     config["bot_identifier"] = input("| ").strip()
     input("\nThis concludes the setup wizard. For further setup options (ex. setting up google image search), refer to the Discord Selfbot wiki.\n\nPress Enter to start the bot....\n")
-    config["run_as_superuser"] = False
+  
     print("Starting up...")
     with open('settings/config.json', encoding='utf-8', mode="w") as f:
         dump(config, f, sort_keys=True, indent=4)
@@ -106,25 +106,26 @@ else:
         Wizard()
 
 shutdown = False
-if not get_config_value('config', 'run_as_superuser'):
-    if os.name == 'nt':
-        try:
-            if ctypes.windll.shell32.IsUserAnAdmin() != 0:
-                print('Do not run the Bot as Administrator')
-                shutdown = True
-        except:
-            pass
+if os.name == 'nt':
+    try:
+        # only windows users with admin privileges can read the C:\windows\temp
+        temp = os.listdir(os.sep.join([os.environ.get('SystemRoot','C:\\windows'),'temp']))
+    except:
+        shutdown = False
     else:
-        try:
-            if os.getuid() == 0:
-                print('Do not run the Bot with sudo or as root')
-                shutdown = True
-        except:
-            pass
-
-
-if shutdown == True:
-    exit(0)
+        shutdown = True
+else:
+    if os.geteuid() == 0:
+        shutdown = True
+    else:
+        shutdown = False
+        
+if shutdown == True and not _force_admin:
+    if os.name == 'nt':
+        print('It is not advised to run the bot as Admin.\nContinuing logging in...')
+    else:
+        print('It is not advised to run the bot with root privileges.\nContinuing logging in...')
+    # exit(0)
 
 def set_log():
     errformat = logging.Formatter(
