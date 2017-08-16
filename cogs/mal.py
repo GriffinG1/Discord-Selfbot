@@ -62,8 +62,7 @@ class Mal:
 
         For >mal va, put [more] to get some more info. (Takes more time) Ex: >mal va [more] saori hayami"""
         if ctx.invoked_subcommand is None:
-            await self.bot.send_message(ctx.message.channel,
-                                       self.bot.bot_prefix + 'Invalid Syntax. See `>help mal` for more info on how to use this command.')
+            await ctx.send(self.bot.bot_prefix + 'Invalid Syntax. See `>help mal` for more info on how to use this command.')
 
 
 
@@ -72,7 +71,7 @@ class Mal:
     async def anime(self, ctx, *, msg: str = None):
         """Search the anime database. Ex: >mal anime Steins;Gate"""
         if msg:
-            fetch = await self.bot.send_message(ctx.message.channel, self.bot.bot_prefix + 'Searching...')
+            fetch = await ctx.send(self.bot.bot_prefix + 'Searching...')
             if msg.startswith('[link]'):
                 msg = msg[6:]
                 link = True
@@ -86,19 +85,19 @@ class Mal:
                 try:
                     results = await self.t_client.get_anime(int(anime_id[0]))
                 except IndexError:
-                    return await self.bot.send_message(ctx.message.channel, self.bot.bot_prefix + 'No results.')
+                    return await ctx.send(self.bot.bot_prefix + 'No results.')
                 finally:
                     gc.collect()
 
             else:
-                await self.bot.send_message(ctx.message.channel, self.bot.bot_prefix + 'No results.')
-                await self.bot.delete_message(fetch)
-                return await self.bot.delete_message(ctx.message)
+                await ctx.send(self.bot.bot_prefix + 'No results.')
+                await fetch.delete()
+                return await ctx.message.delete()
 
             if not embed_perms(ctx.message) or link is True:
-                await self.bot.send_message(ctx.message.channel, self.bot.bot_prefix + 'https://myanimelist.net/anime/%s' % results.id)
-                await self.bot.delete_message(fetch)
-                return await self.bot.delete_message(ctx.message)
+                await ctx.send(self.bot.bot_prefix + 'https://myanimelist.net/anime/%s' % results.id)
+                await fetch.delete()
+                return await ctx.message.delete()
 
             # Formatting embed
             selection = results
@@ -135,18 +134,18 @@ class Mal:
                           icon_url='https://myanimelist.cdn-dena.com/img/sp/icon/apple-touch-icon-256.png')
             em.set_footer(text='MyAnimeList Anime Search')
 
-            await self.bot.send_message(ctx.message.channel, embed=em)
-            await self.bot.delete_message(fetch)
-            await self.bot.delete_message(ctx.message)
+            await ctx.send(embed=em)
+            await fetch.delete()
+            await ctx.message.delete()
         else:
-            await self.bot.send_message(ctx.message.channel, self.bot.bot_prefix + 'Specify an anime to search for.')
+            await ctx.send(self.bot.bot_prefix + 'Specify an anime to search for.')
 
     # Manga search for Mal
     @mal.command(pass_context=True)
     async def manga(self, ctx, *, msg: str = None):
         """Search the manga database. Ex: >mal manga Boku no Hero Academia"""
         if msg:
-            fetch = await self.bot.send_message(ctx.message.channel, self.bot.bot_prefix + 'Searching...')
+            fetch = await ctx.send(self.bot.bot_prefix + 'Searching...')
             if msg.startswith('[link]'):
                 msg = msg[6:]
                 link = True
@@ -160,18 +159,18 @@ class Mal:
                 try:
                     results = await self.t_client.get_manga(int(manga_id[0]))
                 except IndexError:
-                    return await self.bot.send_message(ctx.message.channel, self.bot.bot_prefix + 'No results.')
+                    return await ctx.send(self.bot.bot_prefix + 'No results.')
                 gc.collect()
 
             else:
-                await self.bot.send_message(ctx.message.channel, self.bot.bot_prefix + 'No results.')
-                await self.bot.delete_message(fetch)
-                return await self.bot.delete_message(ctx.message)
+                await ctx.send(self.bot.bot_prefix + 'No results.')
+                await fetch.delete()
+                return await ctx.message.delete()
 
             if not embed_perms(ctx.message) or link is True:
-                await self.bot.send_message(ctx.message.channel, self.bot.bot_prefix + 'https://myanimelist.net/manga/%s' % results.id)
-                await self.bot.delete_message(fetch)
-                return await self.bot.delete_message(ctx.message)
+                await ctx.send(self.bot.bot_prefix + 'https://myanimelist.net/manga/%s' % results.id)
+                await fetch.delete()
+                return await ctx.message.delete()
 
             # Formatting embed
             selection = results
@@ -208,11 +207,11 @@ class Mal:
                           icon_url='https://myanimelist.cdn-dena.com/img/sp/icon/apple-touch-icon-256.png')
             em.set_footer(text='MyAnimeList Manga Search')
 
-            await self.bot.send_message(ctx.message.channel, embed=em)
-            await self.bot.delete_message(fetch)
-            await self.bot.delete_message(ctx.message)
+            await ctx.send(embed=em)
+            await fetch.delete()
+            await ctx.message.delete()
         else:
-            await self.bot.send_message(ctx.message.channel, self.bot.bot_prefix + 'No results')
+            await ctx.send(self.bot.bot_prefix + 'No results')
 
     @staticmethod
     async def get_next_weekday(startdate, day):
@@ -246,18 +245,18 @@ class Mal:
     @mal.command(pass_context=True, alias=['character'])
     async def char(self, ctx, *, query):
         """Finds specified character actor on MyAnimeList"""
-        fetch = await self.bot.send_message(ctx.message.channel, self.bot.bot_prefix + 'Searching...')
+        fetch = await ctx.send(self.bot.bot_prefix + 'Searching...')
         found, result = await self.google_results('character', query)
         if found:
             char_id = re.findall('/character/(.*)/', result)
         else:
-            await self.bot.delete_message(fetch)
-            await self.bot.delete_message(ctx.message)
-            return await self.bot.send_message(ctx.message.channel)
+            await fetch.delete()
+            await ctx.message.delete()
+            return await ctx.send(self.bot.bot_prefix + 'No results.')
         try:
             selection = await self.t_client.get_character(char_id[0])
         except IndexError:
-            return await self.bot.send_message(ctx.message.channel, self.bot.bot_prefix + 'No results.')
+            return await ctx.send(self.bot.bot_prefix + 'No results.')
         em = discord.Embed(description='{}'.format('https://myanimelist.net/character/%s' % selection.id),
                            colour=0x0066CC)
         em.add_field(name='Anime', value=selection.animeography[0]['name'], inline=False)
@@ -277,98 +276,99 @@ class Mal:
         em.set_author(name=selection.name,
                       icon_url='https://myanimelist.cdn-dena.com/img/sp/icon/apple-touch-icon-256.png')
         em.set_footer(text='MyAnimeList Character Search')
-        await self.bot.send_message(ctx.message.channel, content=None, embed=em)
-        await self.bot.delete_message(fetch)
-        await self.bot.delete_message(ctx.message)
+        await ctx.send(content=None, embed=em)
+        await fetch.delete()
+        await ctx.message.delete()
 
-    @mal.command(pass_context=True, alias=['actor', 'voiceactor', 'person', 'voice'])
-    async def va(self, ctx, *, query):
-        """Finds specified voice actor on MyAnimeList"""
-        if query.startswith('[more] '):
-            query = query[7:]
-            more_info = True
-        else:
-            more_info = False
-        fetch = await self.bot.send_message(ctx.message.channel, self.bot.bot_prefix + 'Searching...')
-        found, result = await self.google_results('people', query)
-        if found:
-            va_id = re.findall('/people/(.*)/', result)
-        else:
-            await self.bot.delete_message(fetch)
-            await self.bot.delete_message(ctx.message)
-            return await self.bot.send_message(ctx.message.channel)
+    #### Temporarily removed b/c of known issue with mal api
+    # @mal.command(pass_context=True, alias=['actor', 'voiceactor', 'person', 'voice'])
+    # async def va(self, ctx, *, query):
+    #     """Finds specified voice actor on MyAnimeList"""
+    #     if query.startswith('[more] '):
+    #         query = query[7:]
+    #         more_info = True
+    #     else:
+    #         more_info = False
+    #     fetch = await ctx.send(self.bot.bot_prefix + 'Searching...')
+    #     found, result = await self.google_results('people', query)
+    #     if found:
+    #         va_id = re.findall('/people/(.*)/', result)
+    #     else:
+    #         await fetch.delete()
+    #         await ctx.message.delete()
+    #         return await ctx.send(self.bot.bot_prefix + 'No results.')
 
-        # No way to get va name so must parse html and grab name from title -_-
-        request_headers = {
-            "Accept-Language": "en-US,en;q=0.5",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; WOW64; rv:40.0) Gecko/20100101 Firefox/40.0",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            "Referer": "http://thewebsite.com",
-            "Connection": "keep-alive"
-        }
-        loop = asyncio.get_event_loop()
-        try:
-            req = Request(result, headers=request_headers)
-            webpage = await loop.run_in_executor(None, urlopen, req)
-        except:
-            return await self.bot.send_message(ctx.message.channel,
-                                               self.bot.bot_prefix + 'Exceeded daily request limit. Try again tomorrow, sorry!')
-        soup = BeautifulSoup(webpage, 'html.parser')
-        va_name = soup.title.string.split(' - MyAnimeList')[0]
+    #     # No way to get va name so must parse html and grab name from title -_-
+    #     request_headers = {
+    #         "Accept-Language": "en-US,en;q=0.5",
+    #         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; WOW64; rv:40.0) Gecko/20100101 Firefox/40.0",
+    #         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    #         "Referer": "http://thewebsite.com",
+    #         "Connection": "keep-alive"
+    #     }
+    #     loop = asyncio.get_event_loop()
+    #     try:
+    #         req = Request(result, headers=request_headers)
+    #         webpage = await loop.run_in_executor(None, urlopen, req)
+    #     except:
+    #         return await ctx.send(self.bot.bot_prefix + 'Exceeded daily request limit. Try again tomorrow, sorry!')
+    #     soup = BeautifulSoup(webpage, 'html.parser')
+    #     va_name = soup.title.string.split(' - MyAnimeList')[0]
 
-        try:
-            selection = await self.t_client.get_person(va_id[0])
-        except IndexError:
-            return await self.bot.send_message(ctx.message.channel, self.bot.bot_prefix + 'No results.')
-        em = discord.Embed(description='{}'.format('https://myanimelist.net/people/%s' % selection.id),
-                           colour=0x0066CC)
-        em.add_field(name='Favorites', value=selection.favorites)
-        if more_info:
-            em.add_field(name='Total Roles', value='Fetching...')
-            em.add_field(name='Most Popular Role', value='Fetching...', inline=False)
-        em.set_image(url=selection.image)
-        em.set_author(name=va_name,
-                      icon_url='https://myanimelist.cdn-dena.com/img/sp/icon/apple-touch-icon-256.png')
-        em.set_footer(text='MyAnimeList Voice Actor Search')
-        va_info = await self.bot.send_message(ctx.message.channel, content=None, embed=em)
-        await self.bot.delete_message(fetch)
-        await self.bot.delete_message(ctx.message)
+    #     try:
+    #         selection = await self.t_client.get_person(va_id[0])
+    #     except IndexError:
+    #         return await ctx.send(self.bot.bot_prefix + 'No results.')
+    #     em = discord.Embed(description='{}'.format('https://myanimelist.net/people/%s' % selection.id),
+    #                        colour=0x0066CC)
+    #     em.add_field(name='Favorites', value=selection.favorites)
+    #     if more_info:
+    #         em.add_field(name='Total Roles', value='Fetching...')
+    #         em.add_field(name='Most Popular Role', value='Fetching...', inline=False)
+    #     em.set_image(url=selection.image)
+    #     em.set_author(name=va_name,
+    #                   icon_url='https://myanimelist.cdn-dena.com/img/sp/icon/apple-touch-icon-256.png')
+    #     em.set_footer(text='MyAnimeList Voice Actor Search')
+    #     va_info = await ctx.send(content=None, embed=em)
+    #     await fetch.delete()
+    #     await ctx.message.delete()
 
-        # get_char on each character in the va role list
-        if more_info:
-            all_chars = []
-            for character in selection.voice_acting:
-                id = character['character']['link'].split('/')[2]
-                all_chars.append(id)
-            try:
-                chunk_generator = self.partition(all_chars, int(len(all_chars)/5))
-                chunk_list = [chunk for chunk in chunk_generator]
-                args = [sys.executable, 'cogs/utils/mal_char_find.py']
-                self.bot.mal_finder = []
-                for chunk in chunk_list:
-                    p = subprocess.Popen(args + chunk, stdout=subprocess.PIPE)
-                    self.bot.mal_finder.append(p)
+    #     # get_char on each character in the va role list
+    #     if more_info:
+    #         all_chars = []
+    #         for character in selection.voice_acting:
+    #             id = character['character']['link'].split('/')[2]
+    #             all_chars.append(id)
+    #         print(all_chars)
+    #         try:
+    #             chunk_generator = self.partition(all_chars, int(len(all_chars)/5))
+    #             chunk_list = [chunk for chunk in chunk_generator]
+    #             args = [sys.executable, 'cogs/utils/mal_char_find.py']
+    #             self.bot.mal_finder = []
+    #             for chunk in chunk_list:
+    #                 p = subprocess.Popen(args + chunk, stdout=subprocess.PIPE)
+    #                 self.bot.mal_finder.append(p)
 
-                while all(None is p.poll() for p in self.bot.mal_finder):
-                    await asyncio.sleep(1)
+    #             while all(None is p.poll() for p in self.bot.mal_finder):
+    #                 await asyncio.sleep(1)
 
-                txt = ''
-                for p in self.bot.mal_finder:
-                    txt += p.communicate()[0].decode('utf-8')
-                all_roles = []
-                role_list = txt.split('\n')
-                for role in role_list:
-                    if ' | ' in role:
-                        char, favs = role.split(' | ')
-                        all_roles.append((char.strip(), int(favs.strip())))
-                all_roles = sorted(all_roles, key=lambda x: x[1], reverse=True)
-                unique_roles = set(tup[0] for tup in all_roles)
-                em.set_field_at(index=1, name='Roles', value=str(len(unique_roles)))
-                em.set_field_at(index=2, name='Most Popular Role', value=all_roles[0][0] + '\nFavorites: ' + str(all_roles[0][1]), inline=False)
-            except ZeroDivisionError:
-                em.set_field_at(index=1, name='Roles', value='None')
-                em.set_field_at(index=2, name='Most Popular Role', value='None', inline=False)
-            await self.bot.edit_message(va_info, new_content=None, embed=em)
+    #             txt = ''
+    #             for p in self.bot.mal_finder:
+    #                 txt += p.communicate()[0].decode('utf-8')
+    #             all_roles = []
+    #             role_list = txt.split('\n')
+    #             for role in role_list:
+    #                 if ' | ' in role:
+    #                     char, favs = role.split(' | ')
+    #                     all_roles.append((char.strip(), int(favs.strip())))
+    #             all_roles = sorted(all_roles, key=lambda x: x[1], reverse=True)
+    #             unique_roles = set(tup[0] for tup in all_roles)
+    #             em.set_field_at(index=1, name='Roles', value=str(len(unique_roles)))
+    #             em.set_field_at(index=2, name='Most Popular Role', value=all_roles[0][0] + '\nFavorites: ' + str(all_roles[0][1]), inline=False)
+    #         except ZeroDivisionError:
+    #             em.set_field_at(index=1, name='Roles', value='None')
+    #             em.set_field_at(index=2, name='Most Popular Role', value='None', inline=False)
+    #         await va_info.edit(content=None, embed=em)
 
     @mal.command(pass_context=True, name="next")
     async def next_(self, ctx, *, query):
@@ -380,13 +380,13 @@ class Mal:
             try:
                 anime = await self.t_client.get_anime(anime_id)
             except Exception as e:
-                await self.bot.send_message(ctx.message.channel, self.bot.bot_prefix + ":exclamation: Oops!\n {}: {}".format(type(e).__name__, e))
-                await self.bot.delete_message(search)
-                return await self.bot.delete_message(ctx.message)
+                await ctx.send(self.bot.bot_prefix + ":exclamation: Oops!\n {}: {}".format(type(e).__name__, e))
+                await search.delete()
+                return await ctx.message.delete()
         else:
-            await self.bot.send_message(ctx.message.channel, self.bot.bot_prefix + 'Failed to find given anime.')
-            await self.bot.delete_message(search)
-            return await self.bot.delete_message(ctx.message)
+            await ctx.send(self.bot.bot_prefix + 'Failed to find given anime.')
+            await search.delete()
+            return await ctx.message.delete()
         if anime.status == "Finished Airing":
             remaining = "This anime has finished airing!\n" + anime.air_time
         else:
@@ -396,9 +396,9 @@ class Mal:
         embed.set_footer(text='MyAnimeList Episode Time Search')
         embed.set_author(name='MyAnimeList', icon_url='https://myanimelist.cdn-dena.com/img/sp/icon/apple-touch-icon-256.png')
         embed.set_thumbnail(url=anime.image)
-        await self.bot.delete_message(search)
-        await self.bot.delete_message(ctx.message)
-        await self.bot.send_message(ctx.message.channel, embed=embed)
+        await search.delete()
+        await ctx.message.delete()
+        await ctx.send(embed=embed)
 
 
 def setup(bot):

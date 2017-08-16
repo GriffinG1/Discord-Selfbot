@@ -13,7 +13,9 @@ import traceback
 import argparse
 import os
 import logging
+import requests
 import logging.handlers
+from bs4 import BeautifulSoup
 from json import load, dump
 from datetime import timezone
 from cogs.utils.dataIO import dataIO
@@ -22,6 +24,7 @@ from discord_webhooks import Webhook
 from cogs.utils.checks import *
 from cogs.utils.config import *
 from discord.ext import commands
+
 
 def parse_cmd_arguments(): # allows for arguments
     parser = argparse.ArgumentParser(description="Discord-Selfbot")
@@ -46,10 +49,15 @@ _reset_cfg = args.reset_config
 _silent = args.silent
 _force_admin = False
 
+try:
+    token = os.environ['TOKEN']
+    heroku = True
+except KeyError:
+    heroku = False
 
 if _test_run:
     try:
-        samples = os.listdir('settings') # generating the config files from sample while building
+        samples = os.listdir('settings')  # generating the config files from sample while building
         for f in samples:
             if f.endswith('sample') and f[:-7] not in samples:
                 with open('settings/%s' % f, 'r', encoding="utf8") as template:
@@ -70,7 +78,8 @@ if sys.platform == 'darwin' or _force_mac:
             print('Exiting...')
             exit(0)
 
-def Wizard():
+
+def wizard():
     # setup wizard
     if _silent:
         print('Cannot use setup Wizard becaue of silent mode')
@@ -97,14 +106,14 @@ def Wizard():
     with open('settings/config.json', encoding='utf-8', mode="w") as f:
         dump(config, f, sort_keys=True, indent=4)
 
-if _reset_cfg:
-    Wizard()
+if _reset_cfg and not heroku:
+    wizard()
 else:
     try:
         with open('settings/config.json', encoding='utf-8', mode="r") as f:
             data = load(f) # checks if the settings file is valid json file
     except IOError:
-        Wizard()
+        wizard()
 
 shutdown = False
 if os.name == 'nt':
@@ -121,12 +130,12 @@ else:
     else:
         shutdown = False
         
-if shutdown == True and not _force_admin:
+if shutdown is True and not _force_admin:
     if os.name == 'nt':
         print('It is not advised to run the bot as Admin.\nContinuing logging in...')
     else:
         print('It is not advised to run the bot with root privileges.\nContinuing logging in...')
-    # exit(0)
+
 
 def set_log():
     errformat = logging.Formatter(
@@ -134,18 +143,19 @@ def set_log():
         '%(message)s',
         datefmt="[%d/%m/%Y %H:%M]")
 
-    logger = logging.getLogger("red")
+    logger = logging.getLogger("discord")
     logger.setLevel(logging.INFO)
     stdout_handler = logging.StreamHandler(sys.stdout)
     stdout_handler.setLevel(logging.INFO)
 
+    if not os.path.exists('settings/logs'):
+        os.makedirs('settings/logs')
     errhandler = logging.handlers.RotatingFileHandler(
-        filename='settings/bot.log', encoding='utf-8', mode='a',
+        filename='settings/logs/bot.log', encoding='utf-8', mode='a',
         maxBytes=10**7, backupCount=5)
     errhandler.setFormatter(errformat)
 
     logger.addHandler(errhandler)
-    logger.addHandler(stdout_handler)
 
     return logger
 
@@ -153,9 +163,9 @@ logger = set_log()
 
 samples = os.listdir('settings')
 for f in samples:
-    if f.endswith('sample') and f[:-7] not in samples:
+    if f.endswith('sample') and f.rsplit('.', 1)[0] not in samples:
         with open('settings/%s' % f, 'r', encoding="utf8") as template:
-            with open('settings/%s' % f[:-7], 'w', encoding="utf8") as g:
+            with open('settings/%s' % f.rsplit('.', 1)[0], 'w', encoding="utf8") as g:
                 fields = json.load(template)
                 json.dump(fields, g, sort_keys=True, indent=4)
 
@@ -174,6 +184,7 @@ if bot.bot_prefix != '':
 bot.cmd_prefix = get_config_value('config', 'cmd_prefix')
 bot.customcmd_prefix = get_config_value('config', 'customcmd_prefix')
 
+
 # Startup
 @bot.event
 async def on_ready():
@@ -188,7 +199,6 @@ async def on_ready():
     bot.icount = bot.message_count = bot.mention_count = bot.keyword_log = 0
     bot.self_log = bot.all_log = {}
     bot.imagedumps = []
-    bot.default_status = ''
     bot.is_stream = False
     bot.game = bot.game_interval = bot.avatar = bot.avatar_interval = bot.subpro = bot.keyword_found = None
     bot.game_time = bot.avatar_time = bot.gc_time = bot.refresh_time = time.time()
@@ -201,9 +211,9 @@ async def on_ready():
 
     if os.path.isfile('restart.txt'):
         with open('restart.txt', 'r', encoding="utf8") as re:
-            channel = bot.get_channel(re.readline())
+            channel = bot.get_channel(int(re.readline()))
             print('Bot has restarted.')
-            await bot.send_message(channel, bot.bot_prefix + 'Bot has restarted.')
+            await channel.send(bot.bot_prefix + 'Bot has restarted.')
         os.remove('restart.txt')
     bot.log_conf = load_log_config()
     bot.key_users = bot.log_conf['keyusers']
@@ -240,8 +250,6 @@ async def on_ready():
             todo = {}
             json.dump(todo, t, indent=4)
 
-    if os.path.isfile('cogs/online_users.py'):
-        os.remove('cogs/online_users.py')
     if not os.path.exists('avatars'):
         os.makedirs('avatars')
     if not os.path.isfile('settings/avatars.json'):
@@ -274,8 +282,9 @@ async def on_ready():
             opt['default_status'] = 'idle'
         if 'ascii_font' not in opt:
             opt['ascii_font'] = 'big'
-        if 'online_stats' not in opt:
-            opt['online_stats'] = 'on'
+        if 'timezone' not in opt:
+            opt['timezone'] = ''
+        bot.default_status = opt['default_status']
         fp.seek(0)
         fp.truncate()
         json.dump(opt, fp, indent=4)
@@ -310,23 +319,26 @@ async def on_ready():
         with open('notifier.txt', 'w', encoding="utf8") as fp:
             fp.write(str(bot.subpro.pid))
 
+
 @bot.event
-async def on_command_error(error, ctx):
+async def on_command_error(ctx, error):
     if isinstance(error, commands.errors.CommandNotFound):
         pass
     elif isinstance(error, commands.errors.CheckFailure):
-        await bot.send_message(ctx.message.channel, bot.bot_prefix + "You don't have permissions to use that command.")
+        await ctx.send(bot.bot_prefix + "You don't have permissions to use that command.")
     elif isinstance(error, commands.errors.MissingRequiredArgument):
         formatter = commands.formatter.HelpFormatter()
-        await bot.send_message(ctx.message.channel, bot.bot_prefix + "You are missing required arguments.\n" + formatter.format_help_for(ctx, ctx.command)[0])
+        help = await formatter.format_help_for(ctx, ctx.command)
+        await ctx.send(bot.bot_prefix + "You are missing required arguments.\n" + help[0])
     else:
         if _silent:
-            await bot.send_message(ctx.message.channel, bot.bot_prefix + "An error occurred with the `{}` command.".format(ctx.command.name))
+            await ctx.send(bot.bot_prefix + "An error occurred with the `{}` command.".format(ctx.command.name))
         else:
-            await bot.send_message(ctx.message.channel, bot.bot_prefix + "An error occurred with the `{}` command. Check the console for details.".format(ctx.command.name))
+            await ctx.send(bot.bot_prefix + "An error occurred with the `{}` command. Check the console for details.".format(ctx.command.name))
             print("Ignoring exception in command {}".format(ctx.command.name))
             trace = traceback.format_exception(type(error), error, error.__traceback__)
             print("".join(trace))
+
 
 @bot.command(pass_context=True, aliases=['reboot'])
 async def restart(ctx):
@@ -339,25 +351,25 @@ async def restart(ctx):
 
     latest = update_bot(True)
     if latest:
-        await bot.send_message(ctx.message.channel, bot.bot_prefix + 'There is an update available for the bot. Download and apply the update on restart? (y/n)')
+        await ctx.send(bot.bot_prefix + 'There is an update available for the bot. Download and apply the update on restart? (y/n)')
         reply = await bot.wait_for_message(timeout=10, author=ctx.message.author, check=check)
         with open('restart.txt', 'w', encoding="utf8") as re:
             re.write(str(ctx.message.channel.id))
         if not reply or reply.content.lower().strip() == 'n':
             print('Restarting...')
-            await bot.send_message(ctx.message.channel, bot.bot_prefix + 'Restarting...')
+            await ctx.send(bot.bot_prefix + 'Restarting...')
         else:
-            await bot.send_message(ctx.message.channel, content=None, embed=latest)
+            await ctx.send(content=None, embed=latest)
             with open('quit.txt', 'w', encoding="utf8") as q:
                 q.write('update')
             print('Downloading update and restarting...')
-            await bot.send_message(ctx.message.channel, bot.bot_prefix + 'Downloading update and restarting (check your console to see the progress)...')
+            await ctx.send(bot.bot_prefix + 'Downloading update and restarting (check your console to see the progress)...')
 
     else:
         print('Restarting...')
         with open('restart.txt', 'w', encoding="utf8") as re:
             re.write(str(ctx.message.channel.id))
-        await bot.send_message(ctx.message.channel, bot.bot_prefix + 'Restarting...')
+        await ctx.send(bot.bot_prefix + 'Restarting...')
 
     if bot.subpro:
         bot.subpro.kill()
@@ -374,10 +386,10 @@ async def update(ctx, msg: str = None):
     if latest:
         if not msg == 'show':
             if embed_perms(ctx.message):
-                await bot.send_message(ctx.message.channel, content=None, embed=latest)
-            await bot.send_message(ctx.message.channel, bot.bot_prefix + 'There is an update available. Downloading update and restarting (check your console to see the progress)...')
+                await ctx.send(content=None, embed=latest)
+            await ctx.send(bot.bot_prefix + 'There is an update available. Downloading update and restarting (check your console to see the progress)...')
         else:
-            await bot.send_message(ctx.message.channel, content=None, embed=latest)
+            await ctx.send(content=None, embed=latest)
             return
         with open('quit.txt', 'w', encoding="utf8") as q:
             q.write('update')
@@ -387,7 +399,7 @@ async def update(ctx, msg: str = None):
             bot.subpro.kill()
         os._exit(0)
     else:
-        await bot.send_message(ctx.message.channel, bot.bot_prefix + 'The bot is up to date.')
+        await ctx.send(bot.bot_prefix + 'The bot is up to date.')
 
 
 @bot.command(pass_context=True, aliases=['stop', 'shutdown'])
@@ -397,48 +409,42 @@ async def quit(ctx):
     if bot.subpro:
         bot.subpro.kill()
     open('quit.txt', 'a', encoding="utf8").close()
-    await bot.send_message(ctx.message.channel, bot.bot_prefix + 'Bot shut down.')
+    await ctx.send(bot.bot_prefix + 'Bot shut down.')
     os._exit(0)
 
 
 @bot.command(pass_context=True)
 async def reload(ctx, txt: str = None):
     """Reloads all modules."""
-    await bot.delete_message(ctx.message)
+    await ctx.message.delete()
     if txt:
         bot.unload_extension(txt)
         try:
             bot.load_extension(txt)
         except Exception as e:
             try:
-                txt = 'cogs.'+txt
                 bot.load_extension(txt)
             except:
-                await bot.send_message(ctx.message.channel, '``` {}: {} ```'.format(type(e).__name__, e))
+                await ctx.send('``` {}: {} ```'.format(type(e).__name__, e))
                 return
     else:
         utils = []
         for i in bot.extensions:
             utils.append(i)
-        fail = False
         l = len(utils)
         for i in utils:
             bot.unload_extension(i)
             try:
                 bot.load_extension(i)
             except Exception as e:
-                await bot.send_message(ctx.message.channel, '{}Failed to reload module `{}` ``` {}: {} ```'.format(bot.bot_prefix, i, type(e).__name__, e))
-                fail = True
+                await ctx.send('{}Failed to reload module `{}` ``` {}: {} ```'.format(bot.bot_prefix, i, type(e).__name__, e))
                 l -= 1
-        await bot.send_message(ctx.message.channel, bot.bot_prefix + 'Reloaded {} of {} modules.'.format(l, len(utils)))
+        await ctx.send(bot.bot_prefix + 'Reloaded {} of {} modules.'.format(l, len(utils)))
 
 
 # On all messages sent (for quick commands, custom commands, and logging messages)
 @bot.event
 async def on_message(message):
-
-    await bot.wait_until_ready()
-    await bot.wait_until_login()
 
     if hasattr(bot, 'message_count'):
         bot.message_count += 1
@@ -449,37 +455,37 @@ async def on_message(message):
             bot.icount += 1
         try:
             if hasattr(bot, 'ignored_servers'):
-                if any(message.server.id == server_id for server_id in bot.ignored_servers['servers']):
+                if any(str(message.guild.id) == str(guild_id) for guild_id in bot.ignored_servers['servers']):
                     return
         except AttributeError:  # Happens when it's a direct message.
             pass
         if hasattr(bot, 'self_log'):
-            if message.channel.id not in bot.self_log:
-                bot.self_log[message.channel.id] = collections.deque(maxlen=100)
-            bot.self_log[message.channel.id].append(message)
+            if str(message.channel.id) not in bot.self_log:
+                bot.self_log[str(message.channel.id)] = collections.deque(maxlen=100)
+            bot.self_log[str(message.channel.id)].append(message)
             if message.content.startswith(bot.customcmd_prefix):
                 response = custom(message.content.lower().strip())
                 if response:
-                    await bot.delete_message(message)
+                    await message.delete()
                     if get_config_value('optional_config', 'rich_embed') == 'on':
                         if response[0] == 'embed' and embed_perms(message):
                             try:
                                 if get_config_value('optional_config', 'customcmd_color'):
                                     color = int('0x' + get_config_value('optional_config', 'customcmd_color'), 16)
-                                    await bot.send_message(message.channel, content=None, embed=discord.Embed(colour=color).set_image(url=response[1]))
+                                    await message.channel.send(content=None, embed=discord.Embed(colour=color).set_image(url=response[1]))
                                 else:
-                                    await bot.send_message(message.channel, content=None, embed=discord.Embed().set_image(url=response[1]))
+                                    await message.channel.send(content=None, embed=discord.Embed().set_image(url=response[1]))
                             except:
-                                await bot.send_message(message.channel, response[1])
+                                await message.channel.send(response[1])
                         else:
-                            await bot.send_message(message.channel, response[1])
+                            await message.channel.send(response[1])
                     else:
-                        await bot.send_message(message.channel, response[1])
+                        await message.channel.send(response[1])
             else:
                 response = quickcmds(message.content.lower().strip())
                 if response:
-                    await bot.delete_message(message)
-                    await bot.send_message(message.channel, response)
+                    await message.delete()
+                    await message.channel.send(response)
 
     notified = message.mentions
     if notified:
@@ -491,21 +497,21 @@ async def on_message(message):
         bot.log_conf = load_log_config()
 
     # Keyword logging.
-    if bot.log_conf['keyword_logging'] == 'on':
+    if bot.log_conf['keyword_logging'] == 'on' and isinstance(message.channel, discord.abc.GuildChannel):
 
         try:
             word_found = False
-            if (bot.log_conf['allservers'] == 'True' or str(message.server.id) in bot.log_conf['servers']) and (message.server.id not in bot.log_conf['blacklisted_servers'] and message.channel.id not in bot.log_conf['blacklisted_channels']):
-                add_alllog(message.channel.id, message.server.id, message)
-                if message.author.id != bot.user.id and (not message.author.bot and not any(x in message.author.id for x in bot.log_conf['blacklisted_users'])):
+            if (bot.log_conf['allservers'] == 'True' or str(message.guild.id) in bot.log_conf['servers']) and (str(message.guild.id) not in bot.log_conf['blacklisted_servers'] and str(message.channel.id) not in bot.log_conf['blacklisted_channels']):
+                add_alllog(str(message.channel.id), str(message.guild.id), message)
+                if message.author.id != bot.user.id and (not message.author.bot and not any(x in str(message.author.id) for x in bot.log_conf['blacklisted_users'])):
                     for word in bot.log_conf['keywords']:
                         if ' [server]' in word:
-                            word, server = word.split(' [server]')
-                            if message.server.id != server:
+                            word, guild = word.split(' [server]')
+                            if str(message.guild.id) != guild:
                                 continue
                         elif ' [channel]' in word:
                             word, channel = word.split(' [channel]')
-                            if message.channel.id != channel:
+                            if str(message.channel.id) != channel:
                                 continue
                         if word.startswith('[isolated]'):
                             word = word[10:].lower()
@@ -521,12 +527,12 @@ async def on_message(message):
                     for x in bot.log_conf['blacklisted_words']:
                         if '[server]' in x:
                             bword, id = x.split('[server]')
-                            if bword.strip().lower() in message.content.lower() and message.server.id == id:
+                            if bword.strip().lower() in message.content.lower() and str(message.guild.id) == id:
                                 word_found = False
                                 break
                         elif '[channel]' in x:
                             bword, id = x.split('[channel]')
-                            if bword.strip().lower() in message.content.lower() and message.channel.id == id:
+                            if bword.strip().lower() in message.content.lower() and str(message.channel.id) == id:
                                 word_found = False
                                 break
                         if x.lower() in message.content.lower():
@@ -535,12 +541,17 @@ async def on_message(message):
 
             user_found = False
             if bot.log_conf['user_logging'] == 'on':
-                if '{} {}'.format(str(message.author.id), str(message.server.id)) in bot.log_conf['keyusers']:
-                    if user_post(bot, '{} {}'.format(str(message.author.id), str(message.server.id))):
+                user = '{} {}'.format(str(message.author.id), str(message.guild.id))
+                if '{} {}'.format(str(message.author.id), str(message.guild.id)) in bot.log_conf['keyusers']:
+                    user_p = user_post(bot, user)
+                    if user_p[0]:
+                        bot.log_conf['keyusers'][user] = bot.key_users[user] = user_p[1]
                         user_found = message.author.name
 
                 elif '{} all'.format(str(message.author.id)) in bot.log_conf['keyusers']:
-                    if user_post(bot, '{} all'.format(str(message.author.id))):
+                    user_p = user_post(bot, user)
+                    if user_p[0]:
+                        bot.log_conf['keyusers'][user] = bot.key_users[user] = user_p[1]
                         user_found = message.author.name
 
             if word_found is True or user_found:
@@ -550,24 +561,24 @@ async def on_message(message):
                 else:
                     location = bot.log_conf['log_location'].split()
                     is_separate = False
-                server = bot.get_server(location[1])
-                if message.channel.id != location[0]:
+                guild = bot.get_guild(int(location[1]))
+                if str(message.channel.id) != location[0]:
                     msg = message.clean_content.replace('`', '')
 
                     context = []
                     try:
                         for i in range(0, int(bot.log_conf['context_len'])):
-                            context.append(bot.all_log[message.channel.id + ' ' + message.server.id][len(bot.all_log[message.channel.id + ' ' + message.server.id])-i-2])
+                            context.append(bot.all_log[str(message.channel.id) + ' ' + str(message.guild.id)][len(bot.all_log[str(message.channel.id) + ' ' + str(message.guild.id)])-i-2])
                         msg = ''
                         for i in range(0, int(bot.log_conf['context_len'])):
                             temp = context[len(context)-i-1][0]
                             if temp.clean_content:
-                                msg += 'User: %s | %s\n' % (temp.author.name, temp.timestamp.replace(tzinfo=timezone.utc).astimezone(tz=None).__format__('%x @ %X')) + temp.clean_content.replace('`', '') + '\n\n'
-                        msg += 'User: %s | %s\n' % (message.author.name, message.timestamp.replace(tzinfo=timezone.utc).astimezone(tz=None).__format__('%x @ %X')) + message.clean_content.replace('`', '')
+                                msg += 'User: %s | %s\n' % (temp.author.name, temp.created_at.replace(tzinfo=timezone.utc).astimezone(tz=None).__format__('%x @ %X')) + temp.clean_content.replace('`', '') + '\n\n'
+                        msg += 'User: %s | %s\n' % (message.author.name, message.created_at.replace(tzinfo=timezone.utc).astimezone(tz=None).__format__('%x @ %X')) + message.clean_content.replace('`', '')
                         success = True
                     except:
                         success = False
-                        msg = 'User: %s | %s\n' % (message.author.name, message.timestamp.replace(tzinfo=timezone.utc).astimezone(tz=None).__format__('%x @ %X')) + msg
+                        msg = 'User: %s | %s\n' % (message.author.name, message.created_at.replace(tzinfo=timezone.utc).astimezone(tz=None).__format__('%x @ %X')) + msg
 
                     part = int(math.ceil(len(msg) / 1950))
                     if user_found:
@@ -575,7 +586,7 @@ async def on_message(message):
                     else:
                         title = '%s mentioned: %s' % (message.author.name, word)
                     if part == 1 and success is True:
-                        em = discord.Embed(timestamp=message.timestamp, color=0xbc0b0b, title=title, description='Server: ``%s``\nChannel: <#%s> | %s\n\n**Context:**' % (str(message.server), str(message.channel.id), message.channel.name))
+                        em = discord.Embed(timestamp=message.created_at, color=0xbc0b0b, title=title, description='Server: ``%s``\nChannel: <#%s> | %s\n\n**Context:**' % (str(message.guild), str(message.channel.id), message.channel.name))
                         for i in range(0, int(bot.log_conf['context_len'])):
                             temp = context.pop()
                             if temp[0].clean_content:
@@ -590,7 +601,7 @@ async def on_message(message):
                         elif bot.notify['type'] == 'ping':
                             await webhook(em, 'embed ping', is_separate)
                         else:
-                            await bot.send_message(server.get_channel(location[0]), embed=em)
+                            await guild.get_channel(int(location[0])).send(embed=em)
                     else:
                         split_list = [msg[i:i + 1950] for i in range(0, len(msg), 1950)]
                         all_words = []
@@ -607,18 +618,18 @@ async def on_message(message):
                         for b, i in enumerate(all_words):
                             if b == 0:
                                 if bot.notify['type'] == 'msg':
-                                    await webhook(bot.bot_prefix + '%s in server: ``%s`` Context: Channel: <#%s> | %s\n\n```%s```' % (logged_msg, str(message.server), str(message.channel.id), message.channel.name, i), 'message', is_separate)
+                                    await webhook(bot.bot_prefix + '%s in server: ``%s`` Context: Channel: <#%s> | %s\n\n```%s```' % (logged_msg, str(message.guild), str(message.channel.id), message.channel.name, i), 'message', is_separate)
                                 elif bot.notify['type'] == 'ping':
-                                    await webhook(bot.bot_prefix + '%s in server: ``%s`` Context: Channel: <#%s> | %s\n\n```%s```' % (logged_msg, str(message.server), str(message.channel.id), message.channel.name, i), 'message ping', is_separate)
+                                    await webhook(bot.bot_prefix + '%s in server: ``%s`` Context: Channel: <#%s> | %s\n\n```%s```' % (logged_msg, str(message.guild), str(message.channel.id), message.channel.name, i), 'message ping', is_separate)
                                 else:
-                                    await bot.send_message(server.get_channel(location[0]), bot.bot_prefix + '%s in server: ``%s`` Context: Channel: <#%s>\n\n```%s```' % (logged_msg, str(message.server), str(message.channel.id), i))
+                                    await guild.get_channel(int(location[0])).send(bot.bot_prefix + '%s in server: ``%s`` Context: Channel: <#%s>\n\n```%s```' % (logged_msg, str(message.guild), str(message.channel.id), i))
                             else:
                                 if bot.notify['type'] == 'msg':
                                     await webhook('```%s```' % i, 'message', is_separate)
                                 elif bot.notify['type'] == 'ping':
                                     await webhook('```%s```' % i, 'message ping', is_separate)
                                 else:
-                                    await bot.send_message(server.get_channel(location[0]), '```%s```' % i)
+                                    await guild.get_channel(int(location[0])).send('```%s```' % i)
                     bot.keyword_log += 1
 
         # Bad habit but this is for skipping errors when dealing with Direct messages, blocked users, etc. Better to just ignore.
@@ -628,18 +639,18 @@ async def on_message(message):
     await bot.process_commands(message)
 
 
-def add_alllog(channel, server, message):
+def add_alllog(channel, guild, message):
     if not hasattr(bot, 'all_log'):
         bot.all_log = {}
-    if channel + ' ' + server in bot.all_log:
-        bot.all_log[channel + ' ' + server].append((message, message.clean_content))
+    if channel + ' ' + guild in bot.all_log:
+        bot.all_log[channel + ' ' + guild].append((message, message.clean_content))
     else:
-        bot.all_log[channel + ' ' + server] = collections.deque(maxlen=int(get_config_value('log', 'log_size', 25)))
-        bot.all_log[channel + ' ' + server].append((message, message.clean_content))
+        bot.all_log[channel + ' ' + guild] = collections.deque(maxlen=int(get_config_value('log', 'log_size', 25)))
+        bot.all_log[channel + ' ' + guild].append((message, message.clean_content))
 
 
-def remove_alllog(channel, server):
-    del bot.all_log[channel + ' ' + server]
+def remove_alllog(channel, guild):
+    del bot.all_log[channel + ' ' + guild]
 
 
 # Webhook for keyword notifications
@@ -667,13 +678,15 @@ async def webhook(keyword_content, send_type, is_separate):
 async def game_and_avatar(bot):
     await bot.wait_until_ready()
     current_game = next_game = current_avatar = next_avatar = 0
-    while not bot.is_closed:
 
+    while not bot.is_closed():
         # Cycles game if game cycling is enabled.
         if hasattr(bot, 'game_time') and hasattr(bot, 'game'):
             if bot.game:
                 if bot.game_interval:
-                    if game_time_check(bot, bot.game_time, bot.game_interval):
+                    game_check = game_time_check(bot.game_time, bot.game_interval)
+                    if game_check:
+                        bot.game_time = game_check
                         with open('settings/games.json', encoding="utf8") as g:
                             games = json.load(g)
                         if games['type'] == 'random':
@@ -701,7 +714,9 @@ async def game_and_avatar(bot):
                                 await bot.change_presence(game=discord.Game(name=games['games'][next_game]), status=set_status(bot), afk=True)
 
                 else:
-                    if game_time_check(bot, bot.game_time, 180):
+                    game_check = game_time_check(bot.game_time, 180)
+                    if game_check:
+                        bot.game_time = game_check
                         with open('settings/games.json', encoding="utf8") as g:
                             games = json.load(g)
 
@@ -716,7 +731,9 @@ async def game_and_avatar(bot):
         if hasattr(bot, 'avatar_time') and hasattr(bot, 'avatar'):
             if bot.avatar:
                 if bot.avatar_interval:
-                    if avatar_time_check(bot, bot.avatar_time, bot.avatar_interval):
+                    avi_check = avatar_time_check(bot.avatar_time, bot.avatar_interval)
+                    if avi_check:
+                        bot.avatar_time = avi_check
                         with open('settings/avatars.json', encoding="utf8") as g:
                             avi_config = json.load(g)
                         all_avis = glob.glob('avatars/*.jpg')
@@ -742,7 +759,9 @@ async def game_and_avatar(bot):
 
         # Sets status to default status when user goes offline (client status takes priority when user is online)
         if hasattr(bot, 'refresh_time'):
-            if has_passed(bot, bot.refresh_time):
+            refresh_time = has_passed(bot.refresh_time)
+            if refresh_time:
+                bot.refresh_time = refresh_time
                 if bot.game and bot.is_stream and '=' in bot.game:
                     g, url = bot.game.split('=')
                     await bot.change_presence(game=discord.Game(name=g, type=1, url=url), status=set_status(bot), afk=True)
@@ -753,42 +772,75 @@ async def game_and_avatar(bot):
                     await bot.change_presence(status=set_status(bot), afk=True)
 
         if hasattr(bot, 'gc_time'):
-            if gc_clear(bot, bot.gc_time):
+            gc_t = gc_clear(bot.gc_time)
+            if gc_t:
                 gc.collect()
+                bot.gc_time = gc_t
 
         await asyncio.sleep(5)
 
 if __name__ == '__main__':
+    if not os.path.exists("custom_cogs"):
+        try:
+            os.makedirs("custom_cogs")
+            text = "Hello! Seems like you ran into this folder and don't know what this is for. This folder is meant to hold various custom cogs you can download.\n\n" \
+                   "Custom cogs are additional add-ons you can download for the bot which will usually come with additional features and commands.\n\n" \
+                   "For more info on what they are, how they can be accessed and downloaded, and how you can make one too, go here: https://github.com/appu1232/Discord-Selfbot/wiki/Other-Add-ons"
+            with open("custom_cogs/what_is_this.txt", 'w') as fp:
+                fp.write(text)
+            site = requests.get('https://github.com/LyricLy/ASCII/tree/master/cogs').text
+            soup = BeautifulSoup(site, "lxml")
+            data = soup.find_all(attrs={"class": "js-navigation-open"})
+            list = []
+            for a in data:
+                list.append(a.get("title"))
+            for cog in list[2:]:
+                for entry in list[2:]:
+                    response = requests.get("http://appucogs.tk/cogs/{}".format(entry))
+                    found_cog = response.json()
+                    filename = found_cog["link"].rsplit("/",1)[1].rsplit(".",1)[0]
+                    if os.path.isfile("cogs/" + filename + ".py"):
+                        os.rename("cogs/" + filename + ".py", "custom_cogs/" + filename + ".py")
+        except Exception as e:
+            print("Failed to transfer custom cogs to custom_cogs folder. Error: %s" % str(e))
     for extension in os.listdir("cogs"):
         if extension.endswith('.py'):
             try:
                 bot.load_extension("cogs." + extension[:-3])
             except Exception as e:
                 print('Failed to load extension {}\n{}: {}'.format(extension, type(e).__name__, e))
+    for extension in os.listdir("custom_cogs"):
+        if extension.endswith('.py'):
+            try:
+                bot.load_extension("custom_cogs." + extension[:-3])
+            except Exception as e:
+                print('Failed to load extension {}\n{}: {}'.format(extension, type(e).__name__, e))
 
     bot.loop.create_task(game_and_avatar(bot))
 
     while True:
+        if heroku:
+            token = os.environ['TOKEN']
+        else:
+            token = get_config_value('config', 'token')
         try:
-            try:
-                bot.run(get_config_value('config', 'token'), bot=False)
-            except (KeyError, discord.errors.LoginFailure):
-                bot.run(os.environ['TOKEN'], bot=False)
-        except (KeyError, discord.errors.LoginFailure):
-            if _silent:
-                print('Cannot use setup Wizard becaue of silent mode')
-                exit(0)
-            print("It seems the token you entered is incorrect or has changed. If you changed your password or enabled/disabled 2fa, your token will change. Grab your new token. Here's how you do it:\n")
-            print("Go into your Discord window and press Ctrl+Shift+I (Ctrl+Opt+I can also work on macOS)")
-            print("Then, go into the Applications tab (you may have to click the arrow at the top right to get there), expand the 'Local Storage' dropdown, select discordapp, and then grab the token value at the bottom. Here's how it looks: https://imgur.com/h3g9uf6")
-            print("Paste the contents of that entry below.")
-            print("-------------------------------------------------------------")
-            token = input("| ").strip('"')
-            with open("settings/config.json", "r+", encoding="utf8") as fp:
-                config = json.load(fp)
-                config["token"] = token
-                fp.seek(0)
-                fp.truncate()
-                json.dump(config, fp, indent=4)
-            continue
+            bot.run(token, bot=False)
+        except discord.errors.LoginFailure:
+            if not heroku:
+                if _silent:
+                    print('Cannot use setup Wizard becaue of silent mode')
+                    exit(0)
+                print("It seems the token you entered is incorrect or has changed. If you changed your password or enabled/disabled 2fa, your token will change. Grab your new token. Here's how you do it:\n")
+                print("Go into your Discord window and press Ctrl+Shift+I (Ctrl+Opt+I can also work on macOS)")
+                print("Then, go into the Applications tab (you may have to click the arrow at the top right to get there), expand the 'Local Storage' dropdown, select discordapp, and then grab the token value at the bottom. Here's how it looks: https://imgur.com/h3g9uf6")
+                print("Paste the contents of that entry below.")
+                print("-------------------------------------------------------------")
+                token = input("| ").strip('"')
+                with open("settings/config.json", "r+", encoding="utf8") as fp:
+                    config = json.load(fp)
+                    config["token"] = token
+                    fp.seek(0)
+                    fp.truncate()
+                    json.dump(config, fp, indent=4)
+                continue
         break
