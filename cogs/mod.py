@@ -20,40 +20,52 @@ class Mod:
         return original == empty
 
     @commands.command(pass_context=True)
-    async def kick(self, ctx, user: str, ):
+    async def kick(self, ctx, user, *, reason=""):
         """Kicks a user (if you have the permission)."""
         user = get_user(ctx.message, user)
         if user:
             try:
-                await user.kick()
-                await ctx.message.edit(content=self.bot.bot_prefix + 'Kicked user: %s' % user.mention)
+                await user.kick(reason=reason)
+                return_msg = "Kicked user `{}`".format(user.mention)
+                if reason:
+                    return_msg += " for reason `{}`".format(reason)
+                return_msg += "."
+                await ctx.message.edit(content=self.bot.bot_prefix + return_msg)
             except discord.Forbidden:
                 await ctx.message.edit(content=self.bot.bot_prefix + 'Could not kick user. Not enough permissions.')
         else:
             return await ctx.message.edit(content=self.bot.bot_prefix + 'Could not find user.')
 
     @commands.command(pass_context=True)
-    async def ban(self, ctx, *, user: str):
+    async def ban(self, ctx, user, *, reason=""):
         """Bans a user (if you have the permission)."""
         user = get_user(ctx.message, user)
         if user:
             try:
-                await user.ban()
-                await ctx.message.edit(content=self.bot.bot_prefix + 'Banned user: %s' % user.mention)
+                await user.ban(reason=reason)
+                return_msg = "Banned user `{}`".format(user.mention)
+                if reason:
+                    return_msg += " for reason `{}`".format(reason)
+                return_msg += "."
+                await ctx.message.edit(content=self.bot.bot_prefix + return_msg)
             except discord.Forbidden:
                 await ctx.message.edit(content=self.bot.bot_prefix + 'Could not ban user. Not enough permissions.')
         else:
             return await ctx.message.edit(content=self.bot.bot_prefix + 'Could not find user.')
 
     @commands.command(aliases=['sban'], pass_context=True)
-    async def softban(self, ctx, *, user: str):
-        """Softbans a user (if you have the permission)."""
+    async def softban(self, ctx, user, *, reason=""):
+        """Bans and unbans a user (if you have the permission)."""
         user = get_user(ctx.message, user)
         if user:
             try:
-                await user.ban()
-                await ctx.message.guild.unban(user)
-                await ctx.message.edit(content=self.bot.bot_prefix + 'Softbanned user: %s' % user.mention)
+                await user.ban(reason=reason)
+                await ctx.guild.unban(user)
+                return_msg = "Banned and unbanned user `{}`".format(user.mention)
+                if reason:
+                    return_msg += " for reason `{}`".format(reason)
+                return_msg += "."
+                await ctx.message.edit(content=self.bot.bot_prefix + return_msg)
             except discord.Forbidden:
                 await ctx.message.edit(content=self.bot.bot_prefix + 'Could not softban user. Not enough permissions.')
         else:
@@ -107,11 +119,13 @@ class Mod:
             user = get_user(ctx.message, user)
             if user:
                 failed = []
+                channel_length = 0
                 for channel in ctx.message.guild.channels:
                     if type(channel) != discord.channel.TextChannel:
                         continue
                     overwrites = channel.overwrites_for(user)
                     overwrites.send_messages = None
+                    channel_length += 1
                     is_empty = self.are_overwrites_empty(overwrites)
                     try:
                         if not is_empty:
@@ -121,8 +135,8 @@ class Mod:
                         await channel.set_permissions(user, overwrite=overwrites)
                     except discord.Forbidden:
                         failed.append(channel)
-                if failed and len(failed) < len(ctx.message.guild.channels):
-                    await ctx.message.edit(content=self.bot.bot_prefix + "Unmuted user in {}/{} channels: {}".format(len(ctx.message.guild.channels)-len(failed), len(ctx.message.guild.channels), user.mention))
+                if failed and len(failed) < channel_length:
+                    await ctx.message.edit(content=self.bot.bot_prefix + "Unmuted user in {}/{} channels: {}".format(channel_length - len(failed), channel_length, user.mention))
                 elif failed:
                     await ctx.message.edit(content=self.bot.bot_prefix + "Failed to unmute user. Not enough permissions.")
                 else:

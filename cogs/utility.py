@@ -8,6 +8,8 @@ import json
 import discord
 import os
 import glob
+import git
+import io
 from PIL import Image
 from PythonGists import PythonGists
 from discord.ext import commands
@@ -46,10 +48,23 @@ class Utility:
     @commands.command(pass_context=True)
     async def now(self, ctx):
         """Date time module."""
+        opt = dataIO.load_json('settings/optional_config.json')
+        thebool = True
+        try:
+            if opt['24hours'] == "true":
+                thebool = True
+            else:
+                thebool = False
+        except IndexError:
+            # No 24 hour bool given so default to true
+            pass
         dandt, tzerror = self.get_datetime()
         if embed_perms(ctx.message):
             em = discord.Embed(color=discord.Color.blue())
-            em.add_field(name=u'\u23F0 Time', value="{:%H:%M:%S}".format(dandt), inline=False)
+            if thebool:
+                em.add_field(name=u'\u23F0 Time', value="{:%H:%M:%S}".format(dandt), inline=False)
+            else:
+                em.add_field(name=u'\u23F0 Time', value="{:%I:%M:%S %p}".format(dandt), inline=False)
             em.add_field(name=u'\U0001F4C5 Date', value="{:%d %B %Y}".format(dandt), inline=False)
             if tzerror:
                 em.add_field(name=u'\u26A0 Warning', value="Invalid timezone specified, system timezone was used instead.", inline=False)
@@ -63,9 +78,23 @@ class Utility:
     @commands.command(pass_context=True)
     async def time(self, ctx):
         """Show current time"""
+        opt = dataIO.load_json('settings/optional_config.json')
+        thebool = True
+        try:
+            if opt['24hours'] == "true":
+                thebool = True
+            else:
+                thebool = False
+        except IndexError:
+            # No 24 hour bool given so default to true
+            pass
         await ctx.message.delete()
         dandt, tzerror = self.get_datetime()
-        msg = '{:Time: `%H:%M:%S`}'.format(dandt)
+        if thebool:
+            returnstring = '{:Time: `%H:%M:%S`}'.format(dandt)
+        else:
+            returnstring = '{:Time: `%I:%M:%S %p`}'.format(dandt)
+        msg = returnstring
         await ctx.send(self.bot.bot_prefix + msg)
 
     @commands.command(pass_context=True)
@@ -76,81 +105,27 @@ class Utility:
         msg = '{:Date: `%d %B %Y`}'.format(dandt)
         await ctx.send(self.bot.bot_prefix + msg)
 
-    @commands.command(pass_context=True, aliases=['emote'])
-    async def emoji(self, ctx, *, msg):
-        """
-        Embed or copy a custom emoji (from any server).
-        Usage:
-        1) >emoji :smug: [Will display the smug emoji as an image]
-        2) >emoji copy :smug: [Will add the emoji as a custom emote for the server]
-        3) >emoji s :smug: [Will display the smug emoji as an image with additional info]
-        """
-        if msg.startswith("copy "):
-            msg = msg.split("copy ")[1]
-            copy_emote_bool = True
-        else:
-            copy_emote_bool = False
-        if msg.startswith('s '):
-            msg = msg[2:]
-            get_guild = True
-        else:
-            get_guild = False
-        msg = msg.strip(':')
-        if msg.startswith('<'):
-            msg = msg[2:].split(':', 1)[0].strip()
-        url = emoji = guild = None
-        exact_match = False
-        for guild in self.bot.guilds:
-            for emoji in guild.emojis:
-                if msg.strip().lower() in str(emoji):
-                    url = emoji.url
-                    emote_name = emoji.name
-                if msg.strip() == str(emoji).split(':')[1]:
-                    url = emoji.url
-                    emote_name = emoji.name
-                    exact_match = True
-                    break
-            if exact_match:
-                break
-        response = requests.get(emoji.url, stream=True)
-        name = emoji.url.split('/')[-1]
-        with open(name, 'wb') as img:
-
-            for block in response.iter_content(1024):
-                if not block:
-                    break
-
-                img.write(block)
-
-        if attach_perms(ctx.message) and url:
-            if get_guild:
-                await ctx.send('**ID:** {}\n**Server:** {}'.format(str(emoji.id), guild.name))
-            with open(name, 'rb') as fp:
-                if copy_emote_bool:
-                    e = fp.read()
-                else:
-                    await ctx.send(file=discord.File(fp))
-            if copy_emote_bool:
-                try:
-                    await ctx.message.guild.create_custom_emoji(name=emote_name, image=e)
-                    embed = discord.Embed(title="Added new emote", color=discord.Color.blue())
-                    embed.description = "New emote added: " + emote_name
-                    await ctx.send("", embed=embed)
-                except discord.Forbidden:
-                    ctx.send(self.bot.bot_prefix + "Not enough permissions to add emoji!")
-            os.remove(name)
-        elif not embed_perms(ctx.message) and url:
-            await ctx.send(url)
-        else:
-            await ctx.send(self.bot.bot_prefix + 'Could not find emoji.')
-
-        return await ctx.message.delete()
-
     @commands.command(pass_context=True)
     async def code(self, ctx, *, msg):
         """Write text in code format."""
         await ctx.message.delete()
         await ctx.send("```" + msg.replace("`", "") + "```")
+    
+    @commands.command(pass_context=True)
+    async def toggletime(self, ctx):
+        """Toggle between 24 hours time and 12 hours time"""
+        opt = dataIO.load_json('settings/optional_config.json')
+        try:
+            if opt['24hours'] == "true":
+                write_config_value("optional_config", "24hours", "false")
+                await ctx.send(self.bot.bot_prefix + "Set time to `12 hour` clock")
+            else:
+                write_config_value("optional_config", "24hours", "true")
+                await ctx.send(self.bot.bot_prefix + "Set time to `24 hour` clock")
+        except:
+            # Nothing was set, so changing the default to 12hrs
+            write_config_value("optional_config", "24hours", "false")
+            await ctx.send(self.bot.bot_prefix + "Set time to `12 hour` clock")
 
     @commands.command(pass_context=True)
     async def timezone(self, ctx, *, msg):
@@ -167,7 +142,7 @@ class Utility:
         await ctx.send("", embed=embed)
 
     @commands.command(pass_context=True)
-    async def cmdprefix(self, ctx, *, msg: str = None):
+    async def cmdprefix(self, ctx, *, msg):
         """Set your command prefix for normal commands. Requires a reboot."""
         write_config_value("config", "cmd_prefix", msg)
         await ctx.send(self.bot.bot_prefix + 'Prefix changed. Use `restart` to reboot the bot for the updated prefix.')
@@ -210,10 +185,14 @@ class Utility:
 
 
     @commands.command(aliases=['sd'],pass_context=True)
-    async def selfdestruct(self, ctx, *, amount: str = None):
+    async def selfdestruct(self, ctx, *, amount):
         """Builds a self-destructing message. Ex: >sd 5"""
-        killmsg = await ctx.message.channel.history().flatten()
-        killmsg = killmsg[1]
+        async for message in ctx.message.channel.history():
+            if message.id == ctx.message.id:
+                continue
+            if message.author == ctx.message.author:
+                killmsg = message
+                break
         timer = int(amount.strip())
         # Animated countdown because screw rate limit amirite
         destroy = ctx.message
@@ -288,8 +267,12 @@ class Utility:
                     if deleted == txt: 
                         break
         else: # If no number specified, delete last message immediately
-            await self.bot.self_log[str(ctx.message.channel.id)].pop().delete()
-            await self.bot.self_log[str(ctx.message.channel.id)].pop().delete()
+            msg = await ctx.message.channel.history(before=ctx.message).get(author=ctx.message.author)
+            await ctx.message.delete()
+            try:
+                await msg.delete()
+            except:
+                pass
 
     @commands.command(pass_context=True)
     async def spoiler(self, ctx, *, msg: str):
@@ -351,7 +334,7 @@ class Utility:
             else:
                 title = 'Poll by %s' % ctx.message.author.name
         except:
-            return ctx.send(self.bot.bot_prefix + 'Invalid Syntax. Example use: ``>poll Favorite color = Blue | Red | Green | Purple``')
+            return await ctx.send(self.bot.bot_prefix + 'Invalid Syntax. Example use: ``>poll Favorite color = Blue | Red | Green | Purple``')
 
         poll = await loop.run_in_executor(None, strawpy.create_poll, title.strip(), options)
         await ctx.send(self.bot.bot_prefix + poll.url)
@@ -526,12 +509,11 @@ class Utility:
     async def youtube(self, ctx, *, msg):
         """Search for videos on YouTube."""
         search = parse.quote(msg)
+        youtube_regex = re.compile('\/watch\?v=[\d\w\-]*')
         response = requests.get("https://www.youtube.com/results?search_query={}".format(search)).text
-        result = BeautifulSoup(response, "html.parser")
-        await self.bot.delete_message(ctx.message)
-        await self.bot.send_message(ctx.message.channel, "https://www.youtube.com{}".format(result.find_all(attrs={'class': 'yt-uix-tile-link'})[0].get('href')))
         await ctx.message.delete()
-        await ctx.send("https://www.youtube.com{}".format(result.find_all(attrs={'class': 'yt-uix-tile-link'})[0].get('href')))
+        url = youtube_regex.findall(response)[0]
+        await ctx.send("https://www.youtube.com{}".format(url))
 
     @commands.command(pass_context=True)
     async def xkcd(self, ctx, *, comic=""):
@@ -709,9 +691,22 @@ class Utility:
             await ctx.send(self.bot.bot_prefix + "You did not enter a valid URL.")
 
     @commands.command(pass_context=True, aliases=['getcolor'])
-    async def getcolour(self, ctx, colour_code):
+    async def getcolour(self, ctx, *, colour_codes):
         """Posts color of given hex"""
         await ctx.message.delete()
+        colour_codes = colour_codes.split()
+        size = (60, 80) if len(colour_codes) > 1 else (200, 200)
+        if len(colour_codes) > 5:
+            return await ctx.send(self.bot.bot_prefix + "Sorry, 5 colour codes maximum")
+        for colour_code in colour_codes:
+            if not colour_code.startswith("#"):
+                colour_code = "#" + colour_code
+            image = Image.new("RGB", size, colour_code)
+            with io.BytesIO() as file:
+                image.save(file, "PNG")
+                file.seek(0)
+                await ctx.send("Colour with hex code {}:".format(colour_code), file=discord.File(file, "colour_file.png"))
+            await asyncio.sleep(1) # Prevent spaminess
         if not colour_code.startswith("#"):
             colour_code = "#" + colour_code
         image = Image.new("RGB", (200, 200), colour_code)
@@ -806,7 +801,7 @@ class Utility:
             time = 30
         emoji = ['1⃣', '2⃣', '3⃣', '4⃣', '5⃣', '6⃣', '7⃣', '8⃣', '9⃣']
         to_react = []
-        confirmation_msg = "Poll for {}:\n\n".format(options[0])
+        confirmation_msg = "**{}?**:\n\n".format(options[0].rstrip("?"))
         for idx, option in enumerate(options[1:]):
             confirmation_msg += "{} - {}\n".format(emoji[idx], option)
             to_react.append(emoji[idx])
@@ -858,9 +853,10 @@ class Utility:
         embed.set_footer(text="Were you looking for >cog?")
         await ctx.send("", embed=embed)
 
-    @commands.command(pass_context=True, aliases=['clearconsole','cc','clear'])
+    @commands.command(pass_context=True, aliases=['clearconsole', 'cc', 'clear'])
     async def cleartrace(self, ctx):
-        """Shows loaded/unloaded cogs"""
+        global git
+        """Clear the console."""
         if os.name == 'nt':
             os.system('cls')
         else:
@@ -874,7 +870,10 @@ class Utility:
             print(self.bot.user.name)
         except:
             pass
-        print('User id:' + str(self.bot.user.id))
+        print('User id: ' + str(self.bot.user.id))
+        g = git.cmd.Git(working_dir=os.getcwd())
+        branch = g.execute(["git", "rev-parse", "--abbrev-ref", "HEAD"])
+        print('Current branch is: ' + branch)
         print('------')
         await ctx.send(self.bot.bot_prefix + 'Console cleared successfully.')
         

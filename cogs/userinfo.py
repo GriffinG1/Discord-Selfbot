@@ -10,12 +10,11 @@ class Userinfo:
     def __init__(self, bot):
         self.bot = bot
 
-    @commands.group(aliases=['user', 'uinfo', 'info', 'ui'])
-    async def userinfo(self, ctx):
+    @commands.group(invoke_without_command=True, aliases=['user', 'uinfo', 'info', 'ui'])
+    async def userinfo(self, ctx, *, name=""):
         """Get user info. Ex: >info @user"""
         if ctx.invoked_subcommand is None:
             pre = cmd_prefix_len()
-            name = ctx.message.content[4 + pre:].strip()
             if name:
                 try:
                     user = ctx.message.mentions[0]

@@ -148,8 +148,10 @@ class Server:
                     all_users = all_users.replace(', ', '\n')
                     url = PythonGists.Gist(description='Users in role: {} for server: {}'.format(role.name, ctx.message.guild.name), content=str(all_users), name='role.txt')
                     em.add_field(name='All users', value='{} users. [List of users posted to Gist.]({})'.format(len(role.members), url), inline=False)
-                else:
+                elif len(role.members) >= 1:
                     em.add_field(name='All users', value=all_users, inline=False)
+                else:
+                    em.add_field(name='All users', value='There are no users in this role!', inline=False)
                 em.add_field(name='Created at', value=role.created_at.__format__('%x at %X'))
                 em.set_thumbnail(url='http://www.colorhexa.com/%s.png' % str(role.color).strip("#"))
                 await ctx.message.delete()
@@ -158,23 +160,25 @@ class Server:
         await ctx.send(self.bot.bot_prefix + 'Could not find role ``%s``' % msg)
 
     @commands.command(aliases=['channel', 'cinfo', 'ci'], pass_context=True, no_pm=True)
-    async def channelinfo(self, ctx, *, channel: discord.channel=None):
-        """Shows channel informations"""
+    async def channelinfo(self, ctx, *, channel: int = None):
+        """Shows channel information"""
         if not channel:
             channel = ctx.message.channel
-        # else:
-            # channel = ctx.message.guild.get_channel(int(chan))
-            # if not channel: channel = self.bot.get_channel(int(chan))
+        else:
+            channel = self.bot.get_channel(channel)
         data = discord.Embed()
         content = None
         if hasattr(channel, 'mention'):
-            content = self.bot.bot_prefix+"**Informations about Channel:** "+channel.mention
+            content = self.bot.bot_prefix + "**Information about Channel:** " + channel.mention
         if hasattr(channel, 'changed_roles'):
             if len(channel.changed_roles) > 0:
                 data.color = discord.Colour.green() if channel.changed_roles[0].permissions.read_messages else discord.Colour.red()
-        if isinstance(channel, discord.TextChannel): _type = "Text"
-        elif isinstance(channel, discord.VoiceChannel): _type = "Voice"
-        else: _type = "Unknown"
+        if isinstance(channel, discord.TextChannel): 
+            _type = "Text"
+        elif isinstance(channel, discord.VoiceChannel): 
+            _type = "Voice"
+        else: 
+            _type = "Unknown"
         data.add_field(name="Type", value=_type)
         data.add_field(name="ID", value=channel.id, inline=False)
         if hasattr(channel, 'position'):
@@ -196,22 +200,30 @@ class Server:
                 data.add_field(name="Members", value="%s"%len(channel.members))
             if channel.topic:
                 data.add_field(name="Topic", value=channel.topic, inline=False)
-            _hidden = []; _allowed = []
+            hidden = []
+            allowed = []
             for role in channel.changed_roles:
-                if role.permissions.read_messages: _allowed.append(role.mention)
-                else: _hidden.append(role.mention)
-            if len(_allowed) > 0: data.add_field(name='Allowed Roles (%s)'%len(_allowed), value=', '.join(_allowed), inline=False)
-            if len(_hidden) > 0: data.add_field(name='Restricted Roles (%s)'%len(_hidden), value=', '.join(_hidden), inline=False)
+                if role.permissions.read_messages is True:
+                    if role.is_default():
+                        allowed.append("@everyone")
+                    else:
+                        allowed.append(role.mention)
+                elif role.permissions.read_messages is False:
+                    if role.is_default():
+                        hidden.append("@everyone")
+                    else:
+                        hidden.append(role.mention)
+            if len(allowed) > 0: 
+                data.add_field(name='Allowed Roles ({})'.format(len(allowed)), value=', '.join(allowed), inline=False)
+            if len(hidden) > 0:
+                data.add_field(name='Restricted Roles ({})'.format(len(hidden)), value=', '.join(hidden), inline=False)
         if channel.created_at:
             data.set_footer(text=("Created on {} ({} days ago)".format(channel.created_at.strftime("%d %b %Y %H:%M"), (ctx.message.created_at - channel.created_at).days)))
-        # try:
-            await ctx.send(content if content else None, embed=data)
-        # except:
-            # await ctx.send(self.bot.bot_prefix+"I need the `Embed links` permission to send this")
+        await ctx.send(content, embed=data)
 
     @commands.command(aliases=['invitei', 'ii'], pass_context=True)
     async def inviteinfo(self, ctx, *, invite: str = None):
-        """Shows invite informations."""
+        """Shows invite information."""
         if invite:
             for url in re.findall(r'(https?://\S+)', invite):
                 invite = await self.bot.get_invite(urlparse(url).path.replace('/', '').replace('<', '').replace('>', ''))
@@ -233,7 +245,7 @@ class Server:
         data = discord.Embed()
         content = None
         if invite.id is not None:
-            content = self.bot.bot_prefix + "**Informations about Invite:** %s" % invite.id
+            content = self.bot.bot_prefix + "**Information about Invite:** %s" % invite.id
         if invite.revoked is not None:
             data.colour = discord.Colour.red() if invite.revoked else discord.Colour.green()
         if invite.created_at is not None:

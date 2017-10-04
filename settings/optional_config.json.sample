@@ -8,5 +8,7 @@
     "ascii_font": "big",
     "quoteembed_color": "auto",
     "embed_color": "",
-    "timezone": ""
+    "timezone": "",
+    "24hours": "true",
+	"password": ""
 }

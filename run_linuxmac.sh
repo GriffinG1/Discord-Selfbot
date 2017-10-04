@@ -1,6 +1,11 @@
 #!/bin/bash
 
-echo "Warning: this script is still an alpha, expect bugs"
+cd "$(dirname "$0")"
+if [ $? -eq 0 ]; then
+    echo "" 
+else
+    echo "Unable to set script's directory as the current working directory. You will need to make sure you run the script from it's directory."
+fi
 
 updater () {
 	echo "Starting auto-update"
@@ -10,7 +15,7 @@ updater () {
 		git remote add origin https://github.com/appu1232/Discord-Selfbot.git >/dev/null 2>&1
 		git fetch origin master
 		if [ -d "settings" ]; then
-			cp -r settings tmp
+			cp -r settings settings_backup
 		fi
 		new=$(git remote show origin)
 		if [[ "${new}" =~ "up" ]] || [[ "${new}" =~ "fast-forwardable" ]] ; then
@@ -48,7 +53,7 @@ updater () {
 min_updater() {
 	if hash git 2>/dev/null; then
 		if [ -d "settings" ]; then
-			cp -r settings tmp
+			cp -r settings settings_backup
 		fi
 		git fetch origin master
 		echo ""
@@ -77,7 +82,7 @@ run_bot() {
 	if hash python3 2>/dev/null; then # TODO abstracify all this which mirrors above an also look up boolean operators in sh
 		if hash pip3 2>/dev/null; then
 			echo "Using global pip3 executable"
-			if pip3 install --user -r requirements.txt >/dev/null; then
+			if pip3 install --user -r requirements.txt; then
 				echo "Starting bot..."
 				python3 loopself.py
 				ret=$?
@@ -96,7 +101,7 @@ run_bot() {
 			echo "Upgrading pip"
 			if python3 -m pip install --user --upgrade pip; then
 				echo "Upgrading requirements"
-				if python3 -m pip install --user -r requirements.txt >/dev/null; then
+				if python3 -m pip install --user -r requirements.txt; then
 					echo "Starting bot..."
 					python3 loopself.py
 					ret=$?
@@ -129,7 +134,7 @@ run_bot() {
 		esac
 		if hash pip 2>/dev/null; then
 			echo "Using global pip executable"
-			if pip install --user -r requirements.txt >/dev/null; then
+			if pip install --user -r requirements.txt; then
 				echo "Starting bot..."
 				python loopself.py
 				ret=$?
@@ -149,7 +154,7 @@ run_bot() {
 			echo "Upgrading pip"
 			if python -m pip install --user --upgrade pip; then
 				echo "Upgrading requirements"
-				if python -m pip install --user -r requirements.txt >/dev/null; then
+				if python -m pip install --user -r requirements.txt; then
 					echo "Starting bot..."
 					python loopself.py
 					ret=$?

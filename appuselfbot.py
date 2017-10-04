@@ -20,7 +20,7 @@ from json import load, dump
 from datetime import timezone
 from cogs.utils.dataIO import dataIO
 from cogs.utils.allmsgs import custom, quickcmds
-from discord_webhooks import Webhook
+from cogs.utils.webhooks import Webhook
 from cogs.utils.checks import *
 from cogs.utils.config import *
 from discord.ext import commands
@@ -70,14 +70,6 @@ if _test_run:
     print("Quitting: test run")
     exit(0)
 
-if sys.platform == 'darwin' or _force_mac:
-    if subprocess.getstatusoutput('brew')[0] == 1:
-        print('You do not have brew installed.\nThere are known issues with out of date binaries which can be updated using brew.\nFollow https://brew.sh to install brew.\n\nEnter \'I understand!\' to continue')
-        inp = input('>')
-        if inp != 'I understand!':
-            print('Exiting...')
-            exit(0)
-
 
 def wizard():
     # setup wizard
@@ -85,7 +77,7 @@ def wizard():
         print('Cannot use setup Wizard becaue of silent mode')
         exit(0)
     config = {}
-    print("Welcome to Appu's Discord Selfbot!\n")
+    print("Welcome to Appu's Discord Selfbot!\nThis setup wizard will guide you through the initial configuration required to get the bot working.\nThe choices you make in this wizard can be changed at any time by editing the settings/config.json file.\n")
     print("Go into your Discord window and press Ctrl+Shift+I (Ctrl+Opt+I can also work on macOS)")
     print("Then, go into the Applications tab (you may have to click the arrow at the top right to get there), expand the 'Local Storage' dropdown, select discordapp, and then grab the token value at the bottom. Here's how it looks: https://imgur.com/h3g9uf6")
     print("Paste the contents of that entry below.")
@@ -100,7 +92,7 @@ def wizard():
     print("\nEnter something that will precede every response from the bot. This is to identify messages that came from the bot vs. just you talking. Ex: Entering :robot: will make the bot respond with the robot emoji at the front of every message it sends. Recommended but if you don't want anything, press enter to skip.")
     print("-------------------------------------------------------------")
     config["bot_identifier"] = input("| ").strip()
-    input("\nThis concludes the setup wizard. For further setup options (ex. setting up google image search), refer to the Discord Selfbot wiki.\n\nPress Enter to start the bot....\n")
+    input("\nThis concludes the setup wizard. For further setup options (ex. setting up google image search), refer to the Discord Selfbot wiki.\n\nYour settings:\nInvoke commands with: {cmd}  Ex: {cmd}ping\nInvoke custom commands with: {custom}  Ex: {custom}get good\nRerun this wizard by deleting config.json in the settings folder.\n\nPress Enter to start the bot....\n".format(cmd=config["cmd_prefix"], custom=config["customcmd_prefix"]))
   
     print("Starting up...")
     with open('settings/config.json', encoding='utf-8', mode="w") as f:
@@ -284,6 +276,12 @@ async def on_ready():
             opt['ascii_font'] = 'big'
         if 'timezone' not in opt:
             opt['timezone'] = ''
+        if '24hours' not in opt:
+            opt['24hours'] = 'true'
+        if 'password' not in opt:
+            opt['password'] = ''
+        if avatars['password'] != '' and opt['password'] == '':
+            opt['password'] = avatars['password']
         bot.default_status = opt['default_status']
         fp.seek(0)
         fp.truncate()
@@ -345,21 +343,24 @@ async def restart(ctx):
     """Restarts the bot."""
     def check(msg):
         if msg:
-            return msg.content.lower().strip() == 'y' or msg.content.lower().strip() == 'n'
+            return (msg.content.lower().strip() == 'y' or msg.content.lower().strip() == 'n') and msg.author == bot.user
         else:
             return False
 
     latest = update_bot(True)
     if latest:
         await ctx.send(bot.bot_prefix + 'There is an update available for the bot. Download and apply the update on restart? (y/n)')
-        reply = await bot.wait_for_message(timeout=10, author=ctx.message.author, check=check)
+        reply = await bot.wait_for("message", check=check)
         with open('restart.txt', 'w', encoding="utf8") as re:
             re.write(str(ctx.message.channel.id))
         if not reply or reply.content.lower().strip() == 'n':
             print('Restarting...')
             await ctx.send(bot.bot_prefix + 'Restarting...')
         else:
-            await ctx.send(content=None, embed=latest)
+            try:
+                await ctx.send(content=None, embed=latest)
+            except:
+                pass
             with open('quit.txt', 'w', encoding="utf8") as q:
                 q.write('update')
             print('Downloading update and restarting...')
@@ -386,10 +387,16 @@ async def update(ctx, msg: str = None):
     if latest:
         if not msg == 'show':
             if embed_perms(ctx.message):
-                await ctx.send(content=None, embed=latest)
+                try:
+                    await ctx.send(content=None, embed=latest)
+                except:
+                    pass
             await ctx.send(bot.bot_prefix + 'There is an update available. Downloading update and restarting (check your console to see the progress)...')
         else:
-            await ctx.send(content=None, embed=latest)
+            try:
+                await ctx.send(content=None, embed=latest)
+            except:
+                pass
             return
         with open('quit.txt', 'w', encoding="utf8") as q:
             q.write('update')
@@ -460,8 +467,11 @@ async def on_message(message):
         except AttributeError:  # Happens when it's a direct message.
             pass
         if hasattr(bot, 'self_log'):
-            if str(message.channel.id) not in bot.self_log:
-                bot.self_log[str(message.channel.id)] = collections.deque(maxlen=100)
+            try:
+                if str(message.channel.id) not in bot.self_log:
+                    bot.self_log[str(message.channel.id)] = collections.deque(maxlen=100)
+            except AttributeError:
+                return
             bot.self_log[str(message.channel.id)].append(message)
             if message.content.startswith(bot.customcmd_prefix):
                 response = custom(message.content.lower().strip())
@@ -541,17 +551,18 @@ async def on_message(message):
 
             user_found = False
             if bot.log_conf['user_logging'] == 'on':
-                user = '{} {}'.format(str(message.author.id), str(message.guild.id))
                 if '{} {}'.format(str(message.author.id), str(message.guild.id)) in bot.log_conf['keyusers']:
-                    user_p = user_post(bot, user)
-                    if user_p[0]:
-                        bot.log_conf['keyusers'][user] = bot.key_users[user] = user_p[1]
+                    user = '{} {}'.format(str(message.author.id), str(message.guild.id))
+                    cd_active, user_p = user_post(bot.key_users, user)
+                    if cd_active:
+                        bot.log_conf['keyusers'][user] = bot.key_users[user] = user_p
                         user_found = message.author.name
 
                 elif '{} all'.format(str(message.author.id)) in bot.log_conf['keyusers']:
-                    user_p = user_post(bot, user)
-                    if user_p[0]:
-                        bot.log_conf['keyusers'][user] = bot.key_users[user] = user_p[1]
+                    user = '{} all'.format(str(message.author.id), str(message.guild.id))
+                    cd_active, user_p = user_post(bot.key_users, user)
+                    if cd_active:
+                        bot.log_conf['keyusers'][user] = bot.key_users[user] = user_p
                         user_found = message.author.name
 
             if word_found is True or user_found:
@@ -679,107 +690,110 @@ async def game_and_avatar(bot):
     await bot.wait_until_ready()
     current_game = next_game = current_avatar = next_avatar = 0
 
-    while not bot.is_closed():
+    while True:
         # Cycles game if game cycling is enabled.
-        if hasattr(bot, 'game_time') and hasattr(bot, 'game'):
-            if bot.game:
-                if bot.game_interval:
-                    game_check = game_time_check(bot.game_time, bot.game_interval)
-                    if game_check:
-                        bot.game_time = game_check
-                        with open('settings/games.json', encoding="utf8") as g:
-                            games = json.load(g)
-                        if games['type'] == 'random':
-                            while next_game == current_game:
-                                next_game = random.randint(0, len(games['games']) - 1)
-                            current_game = next_game
-                            bot.game = games['games'][next_game]
-                            if bot.is_stream and '=' in games['games'][next_game]:
-                                g, url = games['games'][next_game].split('=')
-                                await bot.change_presence(game=discord.Game(name=g, type=1,
-                                                                            url=url),
-                                                          status=set_status(bot), afk=True)
+        try:
+            if hasattr(bot, 'game_time') and hasattr(bot, 'game'):
+                if bot.game:
+                    if bot.game_interval:
+                        game_check = game_time_check(bot.game_time, bot.game_interval)
+                        if game_check:
+                            bot.game_time = game_check
+                            with open('settings/games.json', encoding="utf8") as g:
+                                games = json.load(g)
+                            if games['type'] == 'random':
+                                while next_game == current_game:
+                                    next_game = random.randint(0, len(games['games']) - 1)
+                                current_game = next_game
+                                bot.game = games['games'][next_game]
+                                if bot.is_stream and '=' in games['games'][next_game]:
+                                    g, url = games['games'][next_game].split('=')
+                                    await bot.change_presence(game=discord.Game(name=g, type=1,
+                                                                                url=url),
+                                                              status=set_status(bot), afk=True)
+                                else:
+                                    await bot.change_presence(game=discord.Game(name=games['games'][next_game], type=0), status=set_status(bot), afk=True)
                             else:
-                                await bot.change_presence(game=discord.Game(name=games['games'][next_game]), status=set_status(bot), afk=True)
-                        else:
-                            if next_game+1 == len(games['games']):
-                                next_game = 0
-                            else:
-                                next_game += 1
-                            bot.game = games['games'][next_game]
-                            if bot.is_stream and '=' in games['games'][next_game]:
-                                g, url = games['games'][next_game].split('=')
+                                if next_game+1 == len(games['games']):
+                                    next_game = 0
+                                else:
+                                    next_game += 1
+                                bot.game = games['games'][next_game]
+                                if bot.is_stream and '=' in games['games'][next_game]:
+                                    g, url = games['games'][next_game].split('=')
+                                    await bot.change_presence(game=discord.Game(name=g, type=1, url=url), status=set_status(bot), afk=True)
+                                else:
+                                    await bot.change_presence(game=discord.Game(name=games['games'][next_game], type=0), status=set_status(bot), afk=True)
+
+                    else:
+                        game_check = game_time_check(bot.game_time, 180)
+                        if game_check:
+                            bot.game_time = game_check
+                            with open('settings/games.json', encoding="utf8") as g:
+                                games = json.load(g)
+
+                            bot.game = games['games']
+                            if bot.is_stream and '=' in games['games']:
+                                g, url = games['games'].split('=')
                                 await bot.change_presence(game=discord.Game(name=g, type=1, url=url), status=set_status(bot), afk=True)
                             else:
-                                await bot.change_presence(game=discord.Game(name=games['games'][next_game]), status=set_status(bot), afk=True)
+                                await bot.change_presence(game=discord.Game(name=games['games'], type=0), status=set_status(bot), afk=True)
 
-                else:
-                    game_check = game_time_check(bot.game_time, 180)
-                    if game_check:
-                        bot.game_time = game_check
-                        with open('settings/games.json', encoding="utf8") as g:
-                            games = json.load(g)
-
-                        bot.game = games['games']
-                        if bot.is_stream and '=' in games['games']:
-                            g, url = games['games'].split('=')
-                            await bot.change_presence(game=discord.Game(name=g, type=1, url=url), status=set_status(bot), afk=True)
-                        else:
-                            await bot.change_presence(game=discord.Game(name=games['games']), status=set_status(bot), afk=True)
-
-        # Cycles avatar if avatar cycling is enabled.
-        if hasattr(bot, 'avatar_time') and hasattr(bot, 'avatar'):
-            if bot.avatar:
-                if bot.avatar_interval:
-                    avi_check = avatar_time_check(bot.avatar_time, bot.avatar_interval)
-                    if avi_check:
-                        bot.avatar_time = avi_check
-                        with open('settings/avatars.json', encoding="utf8") as g:
-                            avi_config = json.load(g)
-                        all_avis = glob.glob('avatars/*.jpg')
-                        all_avis.extend(glob.glob('avatars/*.jpeg'))
-                        all_avis.extend(glob.glob('avatars/*.png'))
-                        all_avis = os.listdir('avatars')
-                        all_avis.sort()
-                        if avi_config['type'] == 'random':
-                            while next_avatar == current_avatar:
-                                next_avatar = random.randint(0, len(all_avis) - 1)
-                            current_avatar = next_avatar
-                            bot.avatar = all_avis[next_avatar]
-                            with open('avatars/%s' % bot.avatar, 'rb') as fp:
-                                await bot.edit_profile(password=avi_config['password'], avatar=fp.read())
-                        else:
-                            if next_avatar + 1 == len(all_avis):
-                                next_avatar = 0
+            # Cycles avatar if avatar cycling is enabled.
+            if hasattr(bot, 'avatar_time') and hasattr(bot, 'avatar'):
+                if bot.avatar:
+                    if bot.avatar_interval:
+                        avi_check = avatar_time_check(bot.avatar_time, bot.avatar_interval)
+                        if avi_check:
+                            bot.avatar_time = avi_check
+                            with open('settings/avatars.json', encoding="utf8") as g:
+                                avi_config = json.load(g)
+                            all_avis = os.listdir('avatars')
+                            all_avis.sort()
+                            if avi_config['type'] == 'random':
+                                while next_avatar == current_avatar:
+                                    next_avatar = random.randint(0, len(all_avis) - 1)
+                                current_avatar = next_avatar
+                                bot.avatar = all_avis[next_avatar]
+                                with open('avatars/%s' % bot.avatar, 'rb') as fp:
+                                    await bot.user.edit(password=avi_config['password'], avatar=fp.read())
                             else:
-                                next_avatar += 1
-                            bot.avatar = all_avis[next_avatar]
-                            with open('avatars/%s' % bot.avatar, 'rb') as fp:
-                                await bot.edit_profile(password=avi_config['password'], avatar=fp.read())
+                                if next_avatar + 1 == len(all_avis):
+                                    next_avatar = 0
+                                else:
+                                    next_avatar += 1
+                                bot.avatar = all_avis[next_avatar]
+                                with open('avatars/%s' % bot.avatar, 'rb') as fp:
+                                    await bot.user.edit(password=avi_config['password'], avatar=fp.read())
 
-        # Sets status to default status when user goes offline (client status takes priority when user is online)
-        if hasattr(bot, 'refresh_time'):
-            refresh_time = has_passed(bot.refresh_time)
-            if refresh_time:
-                bot.refresh_time = refresh_time
-                if bot.game and bot.is_stream and '=' in bot.game:
-                    g, url = bot.game.split('=')
-                    await bot.change_presence(game=discord.Game(name=g, type=1, url=url), status=set_status(bot), afk=True)
-                elif bot.game and not bot.is_stream:
-                    await bot.change_presence(game=discord.Game(name=bot.game),
-                                              status=set_status(bot), afk=True)
-                else:
-                    await bot.change_presence(status=set_status(bot), afk=True)
+            # Sets status to default status when user goes offline (client status takes priority when user is online)
+            if hasattr(bot, 'refresh_time'):
+                refresh_time = has_passed(bot.refresh_time)
+                if refresh_time:
+                    bot.refresh_time = refresh_time
+                    if bot.game and bot.is_stream and '=' in bot.game:
+                        g, url = bot.game.split('=')
+                        await bot.change_presence(game=discord.Game(name=g, type=1, url=url), status=set_status(bot), afk=True)
+                    elif bot.game and not bot.is_stream:
+                        await bot.change_presence(game=discord.Game(name=bot.game, type=0),
+                                                  status=set_status(bot), afk=True)
+                    else:
+                        await bot.change_presence(status=set_status(bot), afk=True)
 
-        if hasattr(bot, 'gc_time'):
-            gc_t = gc_clear(bot.gc_time)
-            if gc_t:
-                gc.collect()
-                bot.gc_time = gc_t
+            if hasattr(bot, 'gc_time'):
+                gc_t = gc_clear(bot.gc_time)
+                if gc_t:
+                    gc.collect()
+                    bot.gc_time = gc_t
+
+        except Exception as e:
+            print('Something went wrong: %s' % e)
 
         await asyncio.sleep(5)
 
 if __name__ == '__main__':
+    err = sys.stderr
+    sys.stderr = open(os.devnull, 'w')
     if not os.path.exists("custom_cogs"):
         try:
             os.makedirs("custom_cogs")
@@ -789,7 +803,7 @@ if __name__ == '__main__':
             with open("custom_cogs/what_is_this.txt", 'w') as fp:
                 fp.write(text)
             site = requests.get('https://github.com/LyricLy/ASCII/tree/master/cogs').text
-            soup = BeautifulSoup(site, "lxml")
+            soup = BeautifulSoup(site, "html.parser")
             data = soup.find_all(attrs={"class": "js-navigation-open"})
             list = []
             for a in data:
@@ -816,6 +830,7 @@ if __name__ == '__main__':
             except Exception as e:
                 print('Failed to load extension {}\n{}: {}'.format(extension, type(e).__name__, e))
 
+    sys.stderr = err
     bot.loop.create_task(game_and_avatar(bot))
 
     while True:

@@ -3,7 +3,7 @@ import json
 import discord
 import asyncio
 from time import time as current_time
-from discord_webhooks import Webhook
+from cogs.utils.webhooks import Webhook
 from discord.ext import commands
 from cogs.utils.dataIO import dataIO
 import shutil
@@ -25,9 +25,8 @@ class Todo:
         self.todo_list = todo_list
 
     def save_list(self):
-        with open("settings/todo.json", "w") as f:
-            json.dump(self.todo_list, f)
-
+        dataIO.save_json("settings/todo.json", self.todo_list)
+        
     # don't like to do this but the one from appuselfbot.py is slightly different to my needs
     async def webhook(self, entry, send_type):
         temp = self.bot.log_conf['webhook_url'].split('/')

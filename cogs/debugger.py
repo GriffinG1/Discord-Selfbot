@@ -6,11 +6,13 @@ import os
 import shutil
 import glob
 import math
+import textwrap
 from PythonGists import PythonGists
 from discord.ext import commands
 from io import StringIO
 from traceback import format_exc
 from cogs.utils.checks import *
+from contextlib import redirect_stdout
 
 # Common imports that can be used by the debugger.
 import requests
@@ -38,48 +40,64 @@ class Debugger:
         self.bot = bot
         self.stream = io.StringIO()
         self.channel = None
+        self._last_result = None
 
-    # Executes/evaluates code. Got the idea from RoboDanny bot by Rapptz. RoboDanny uses eval() but I use exec() to cover a wider scope of possible inputs.
-    async def interpreter(self, env, code):
-        if code.startswith('[m]'):
-            code = code[3:].strip()
-            code_block = False
-        else:
-            code_block = True
+    def cleanup_code(self, content):
+        """Automatically removes code blocks from the code."""
+        # remove ```py\n```
+        if content.startswith('```') and content.endswith('```'):
+            return '\n'.join(content.split('\n')[1:-1])
+
+        # remove `foo`
+        return content.strip('` \n')
+
+    # Executes/evaluates code.Pretty much the same as Rapptz implementation for RoboDanny with slight variations.
+    async def interpreter(self, env, code, ctx):
+        body = self.cleanup_code(code)
+        stdout = io.StringIO()
+
+        os.chdir(os.getcwd())
+        with open('%s/cogs/utils/temp.txt' % os.getcwd(), 'w') as temp:
+            temp.write(body)
+
+        to_compile = 'async def func():\n{}'.format(textwrap.indent(body, "  "))
+
         try:
-            result = eval(code, env)
-            if inspect.isawaitable(result):
-                result = await result
-            if not result:
-                try:
-                    old = sys.stdout
-                    sys.stdout = StringIO()
-                    exec(code, env)
-                    result = sys.stdout.getvalue()
-                    sys.stdout = old
-                except Exception as g:
-                    return self.bot.bot_prefix + '```{}```'.format(type(g).__name__ + ': ' + str(g))
-        except SyntaxError:
-            try:
-                old = sys.stdout
-                sys.stdout = StringIO()
-                exec(code, env)
-                result = sys.stdout.getvalue()
-                sys.stdout = old
-            except Exception as g:
-                return self.bot.bot_prefix + '```{}```'.format(type(g).__name__ + ': ' + str(g))
-
+            exec(to_compile, env)
         except Exception as e:
-            return self.bot.bot_prefix + '```{}```'.format(type(e).__name__ + ': ' + str(e))
+            return await ctx.send('```\n{}: {}\n```'.format(e.__class__.__name__, e))
 
-        if len(str(result)) > 1950:
-            url = PythonGists.Gist(description='Py output', content=str(result), name='output.txt')
-            return self.bot.bot_prefix + 'Large output. Posted to Gist: %s' % url
+        func = env['func']
+        try:
+            with redirect_stdout(stdout):
+                ret = await func()
+        except Exception as e:
+            value = stdout.getvalue()
+            await ctx.send('```\n{}{}\n```'.format(value, traceback.format_exc()))
         else:
-            if code_block:
-                return self.bot.bot_prefix + '```py\n{}\n```'.format(result)
+            value = stdout.getvalue()
+
+            result = None
+            if ret is None:
+                if value:
+                    result = '```\n{}\n```'.format(value)
+                else:
+                    try:
+                        result = '```\n{}\n```'.format(eval(body, env))
+                    except:
+                        pass
             else:
-                return result
+                self._last_result = ret
+                result = '```\n{}{}\n```'.format(value, ret)
+
+            if result:
+                if len(str(result)) > 1950:
+                    url = PythonGists.Gist(description='Py output', content=str(result).strip("`"), name='output.txt')
+                    result = self.bot.bot_prefix + 'Large output. Posted to Gist: %s' % url
+                    await ctx.send(result)
+
+                else:
+                    await ctx.send(result)
 
     @commands.command(pass_context=True)
     async def debug(self, ctx, *, option: str = None):
@@ -87,7 +105,6 @@ class Debugger:
         try:
             if embed_perms(ctx.message):
                 em = discord.Embed(color=0xad2929, title='\ud83e\udd16 Appu\'s Discord Selfbot Debug Infos')
-                # em.add_field(name='Selfbot Version', value='%s'%self.bot.version)
                 system = ''
                 if sys.platform == 'linux':
                     system = subprocess.run(['uname', '-a'], stdout=subprocess.PIPE).stdout.decode('utf-8').strip()
@@ -97,7 +114,6 @@ class Debugger:
                     try: platform
                     except: import platform
                     system = '%s %s (%s)'%(platform.system(),platform.version(),sys.platform)
-                    # os = subprocess.run('systeminfo | findstr /B /C:\"OS Name\" /C:\"OS Version\"', stdout=subprocess.PIPE).stdout.decode('utf-8').strip()
                 else:
                     system = sys.platform
                 em.add_field(name='Operating System', value='%s' % system, inline=False)
@@ -114,7 +130,6 @@ class Debugger:
                 if option and 'deps' in option.lower():
                     dependencies = ''
                     dep_file = sorted(open('%s/requirements.txt' % os.getcwd()).read().split("\n"), key=str.lower)
-                    # [] + dep_file
                     for dep in dep_file:
                         if not '==' in dep: continue
                         dep = dep.split('==')
@@ -122,26 +137,12 @@ class Debugger:
                         if cur == dep[1]: dependencies += '\✅ %s: %s\n'%(dep[0], cur)
                         else: dependencies += '\❌ %s: %s / %s\n'%(dep[0], cur, dep[1])
                     em.add_field(name='Dependencies', value='%s' % dependencies)
-                else:
-                    dependencys = ['discord','prettytable','requests','spice_api','bs4','strawpy','lxml','discord_webhooks','psutil','PythonGists','PIL','pyfiglet','tokage','pytz','github']
-                    loaded_modules = 0
-                    unloaded_modules = 0
-                    for x in dependencys:
-                        try:
-                            __import__(x.strip())
-                            loaded_modules += 1
-                        except: unloaded_modules += 1
-                    em.add_field(name='Dependencies', value='{0} modules imported successfully\n {1} modules imported unsuccessfully'.format(loaded_modules, unloaded_modules), inline=False)
                 cog_list = ["cogs." + os.path.splitext(f)[0] for f in [os.path.basename(f) for f in glob.glob("cogs/*.py")]]
                 loaded_cogs = [x.__module__.split(".")[1] for x in self.bot.cogs.values()]
                 unloaded_cogs = [c.split(".")[1] for c in cog_list if c.split(".")[1] not in loaded_cogs]
-                # custom_cog_list = ["custom_cogs." + os.path.splitext(f)[0] for f in [os.path.basename(f) for f in glob.glob("custom_cogs/*.py")]]
-                # custom_loaded_cogs = [x.__module__.split(".")[1] for x in self.bot.cogs.values()]
-                # custom_unloaded_cogs = [c.split(".")[1] for c in custom_cog_list if c.split(".")[1] not in custom_loaded_cogs]
                 if option and 'cogs' in option.lower():
                     if len(loaded_cogs) > 0: em.add_field(name='Loaded Cogs ({})'.format(len(loaded_cogs)), value='\n'.join(sorted(loaded_cogs)), inline=True)
                     if len(unloaded_cogs) > 0: em.add_field(name='Unloaded Cogs ({})'.format(len(unloaded_cogs)), value='\n'.join(sorted(unloaded_cogs)), inline=True)
-                    # em.add_field(name='Custom Cogs', value='{0} cogs loaded\n {1} cogs unloaded'.format(len(custom_loaded_cogs), len(custom_unloaded_cogs)), inline=True)
                 else: em.add_field(name='Cogs', value='{} loaded.\n{} unloaded'.format(len(loaded_cogs), len(unloaded_cogs)), inline=True)
                 if option and 'path' in option.lower():
                     paths = "\n".join(sys.path).strip()
@@ -168,26 +169,21 @@ class Debugger:
         """Python interpreter. See the wiki for more info."""
 
         if ctx.invoked_subcommand is None:
-            code = msg.strip().strip('` ')
-
             env = {
                 'bot': self.bot,
                 'ctx': ctx,
+                'channel': ctx.channel,
+                'author': ctx.author,
+                'guild': ctx.guild,
+                'server': ctx.guild,
                 'message': ctx.message,
-                'guild': ctx.message.guild,
-                'server': ctx.message.guild,
-                'channel': ctx.message.channel,
-                'author': ctx.message.author
+                '_': self._last_result
             }
+
             env.update(globals())
 
-            result = await self.interpreter(env, code)
+            await self.interpreter(env, msg, ctx)
 
-            os.chdir(os.getcwd())
-            with open('%s/cogs/utils/temp.txt' % os.getcwd(), 'w') as temp:
-                temp.write(msg.strip())
-
-            await ctx.send(result)
 
     # Save last >py cmd/script.
     @py.command(pass_context=True)
@@ -233,18 +229,18 @@ class Debugger:
         env = {
             'bot': self.bot,
             'ctx': ctx,
+            'channel': ctx.channel,
+            'author': ctx.author,
+            'guild': ctx.guild,
+            'server': ctx.guild,
             'message': ctx.message,
-            'guild': ctx.message.guild,
-            'server': ctx.message.guild,
-            'channel': ctx.message.channel,
-            'author': ctx.message.author,
+            '_': self._last_result,
             'argv': parameters
         }
+
         env.update(globals())
 
-        result = await self.interpreter(env, script.strip('` '))
-
-        await ctx.send(result)
+        await self.interpreter(env, script, ctx)
 
     # List saved cmd/scripts
     @py.command(aliases=['ls'], pass_context=True)
@@ -294,7 +290,7 @@ class Debugger:
         try:
             if os.path.exists('%s.txt' % msg):
                 f = open('%s.txt' % msg, 'r').read()
-                await ctx.send(self.bot.bot_prefix + 'Viewing ``%s.txt``: ```%s```' % (msg, f.strip('` ')))
+                await ctx.send(self.bot.bot_prefix + 'Viewing ``%s.txt``: ```py\n%s```' % (msg, f.strip('` ')))
             else:
                 await ctx.send(self.bot.bot_prefix + '``%s.txt`` does not exist.' % msg)
 
@@ -330,34 +326,52 @@ class Debugger:
         """Load a module."""
         await ctx.message.delete()
         try:
-            self.bot.load_extension(msg)
+            if os.path.exists("custom_cogs/{}.py".format(msg)):
+                self.bot.load_extension("custom_cogs.{}".format(msg))
+            elif os.path.exists("cogs/{}.py".format(msg)):
+                self.bot.load_extension("cogs.{}".format(msg))
+            else:
+                raise ModuleNotFoundError("No module named '{}'".format(msg))
         except Exception as e:
-            if type(e) == ImportError:
-                try:
-                    self.bot.load_extension(msg)
-                    return await ctx.send(self.bot.bot_prefix + 'Loaded module: `{}`'.format(msg))
-                except:
-                    pass
-            await ctx.send(self.bot.bot_prefix + 'Failed to load module: `{}`'.format(msg))
+            await ctx.send(self.bot.bot_prefix + 'Failed to load module: `{}.py`'.format(msg))
             await ctx.send(self.bot.bot_prefix + '{}: {}'.format(type(e).__name__, e))
         else:
-            await ctx.send(self.bot.bot_prefix + 'Loaded module: `{}`'.format(msg))
+            await ctx.send(self.bot.bot_prefix + 'Loaded module: `{}.py`'.format(msg))
 
     @commands.command(pass_context=True)
     async def unload(self, ctx, *, msg):
         """Unload a module"""
         await ctx.message.delete()
         try:
-            if os.path.exists(msg.replace(".", "/") + ".py"):
-                self.bot.unload_extension(msg)
+            if os.path.exists("cogs/{}.py".format(msg)):
+                self.bot.unload_extension("cogs.{}".format(msg))
+            elif os.path.exists("custom_cogs/{}.py".format(msg)):
+                self.bot.unload_extension("custom_cogs.{}".format(msg))
             else:
                 raise ModuleNotFoundError("No module named '{}'".format(msg))
         except Exception as e:
-            await ctx.send(self.bot.bot_prefix + 'Failed to unload module: `{}`'.format(msg))
+            await ctx.send(self.bot.bot_prefix + 'Failed to unload module: `{}.py`'.format(msg))
             await ctx.send(self.bot.bot_prefix + '{}: {}'.format(type(e).__name__, e))
         else:
-            await ctx.send(self.bot.bot_prefix + 'Unloaded module: `{}`'.format(msg))
+            await ctx.send(self.bot.bot_prefix + 'Unloaded module: `{}.py`'.format(msg))
 
+    @commands.command(pass_context=True)
+    async def loadall(self, ctx):
+        """Loads all core modules"""
+        await ctx.message.delete()
+        errors = ""
+        for cog in os.listdir("cogs"):
+            if ".py" in cog:
+                cog = cog.replace('.py', '')
+                try:
+                    self.bot.load_extension("cogs.{}".format(cog))
+                except Exception as e:
+                    errors += 'Failed to load module: `{}.py` due to `{}: {}`\n'.format(cog, type(e).__name__, e)
+        if not errors:
+            await ctx.send(self.bot.bot_prefix + "All core modules loaded")
+        else:
+            await ctx.send(self.bot.bot_prefix + errors)
+            
     @commands.command(pass_context=True)
     async def redirect(self, ctx):
         """Redirect STDOUT and STDERR to a channel for debugging purposes."""

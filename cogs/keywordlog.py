@@ -788,9 +788,10 @@ class KeywordLogger:
                             reply = await self.block_check(ctx)
                             if reply and not reply.content.startswith(pre):
                                 await reply.delete()
-                                if reply.content.isdigit():
+                                try:
+                                    float(reply.content)
                                     self.bot.log_conf['keyusers']['{} all'.format(str(user.id))] = [0.0, float(reply.content) * 60.0]
-                                else:
+                                except ValueError:
                                     return await menu.edit(content=self.bot.bot_prefix + 'Error, not a number.')
                                 with open('settings/log.json', 'r+') as log:
                                     log.seek(0)
@@ -798,6 +799,7 @@ class KeywordLogger:
                                     json.dump(self.bot.log_conf, log, indent=4)
                                 with open('settings/log.json', 'r') as log:
                                     self.bot.log_conf = json.load(log)
+                                    self.bot.key_users = self.bot.log_conf['keyusers']
                                 await menu.edit(content=self.bot.bot_prefix + 'Successfully added user: ``{}``'.format(user.name))
 
                     elif reply.content == '3':
@@ -846,7 +848,7 @@ class KeywordLogger:
                                 json.dump(self.bot.log_conf, log, indent=4)
                             with open('settings/log.json', 'r') as log:
                                 self.bot.log_conf = json.load(log)
-
+                                self.bot.key_users = self.bot.log_conf['keyusers']
                             await menu.edit(content=self.bot.bot_prefix + 'Successfully removed the user.'.format(
                                                             word))
 
@@ -1052,21 +1054,21 @@ class KeywordLogger:
                     if comments[i][0].clean_content.replace('`', '') == comments[i][1].replace('`', ''):
                         if comments[i][0].attachments != [] or comments[i][0].embeds != []:
                             for j in comments[i][0].attachments:
-                                attachments += 'Attachment: ' + j['url'] + '\r\n'
+                                attachments += 'Attachment: ' + j.url + '\r\n'
                             for j in comments[i][0].embeds:
                                 embed = re.findall("'url': '(.*?)'", str(j))
                                 attachments += 'Embed: ' + str(j) + '\r\n'
                         msg += 'User: %s  |  %s\r\n' % (comments[i][0].author.name,
-                                     comments[i][0].timestamp.replace(tzinfo=timezone.utc).astimezone(tz=None).__format__(
+                                     comments[i][0].created_at.replace(tzinfo=timezone.utc).astimezone(tz=None).__format__(
                                              '%x @ %X')) + comments[i][0].clean_content.replace('`', '') + attachments + '\r\n'
                     else:
                         msg += 'User: %s  |  %s\r\n[BEFORE EDIT]\r\n%s\r\n[AFTER EDIT]\r\n%s\r\n' % (comments[i][0].author.name,
-                                                        comments[i][0].timestamp.replace(tzinfo=timezone.utc).astimezone(
+                                                        comments[i][0].created_at.replace(tzinfo=timezone.utc).astimezone(
                                                             tz=None).__format__('%x @ %X'), comments[i][1].replace('`', '') + attachments, comments[i][0].clean_content.replace('`', '') + attachments)
                 if save is True:
-                    save_file = 'saved_chat_%s_at_%s.txt' % (ctx.message.timestamp.__format__('%x').replace('/', '_'), ctx.message.timestamp.__format__('%X').replace(':', '_'))
+                    save_file = 'saved_chat_%s_at_%s.txt' % (ctx.message.created_at.__format__('%x').replace('/', '_'), ctx.message.created_at.__format__('%X').replace(':', '_'))
                     with open(save_file, 'w') as file:
-                        msg = 'Server: %s\r\nChannel: %s\r\nTime:%s\r\n\r\n' % (ctx.message.guild.name, ctx.message.channel.name, ctx.message.timestamp.replace(tzinfo=timezone.utc).astimezone(tz=None).__format__('%x @ %X')) + msg
+                        msg = 'Server: %s\r\nChannel: %s\r\nTime:%s\r\n\r\n' % (ctx.message.guild.name, ctx.message.channel.name, ctx.message.created_at.replace(tzinfo=timezone.utc).astimezone(tz=None).__format__('%x @ %X')) + msg
                         file.write(msg)
                     with open(save_file, 'rb') as file:
                         await ctx.send(file=file)
@@ -1300,6 +1302,7 @@ class KeywordLogger:
             else:
                 await ctx.send(self.bot.bot_prefix + 'Now ~~stalking~~ following ``{}`` in server ``{}``.'.format(user.name, self.bot.get_guild(int(stalk_servers.id)).name))
             with open('settings/log.json', 'r') as log:
+                print("test")
                 self.bot.log_conf = json.load(log)
                 self.bot.key_users = self.bot.log_conf['keyusers']
 

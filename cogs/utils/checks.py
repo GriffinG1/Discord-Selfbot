@@ -4,6 +4,9 @@ import git
 import discord
 import os
 import aiohttp
+from cogs.utils.dataIO import dataIO
+from urllib.parse import quote as uriquote
+
 try:
     from lxml import etree
 except ImportError:
@@ -57,17 +60,15 @@ def set_status(bot):
         return discord.Status.invisible
 
 
-def user_post(bot, user):
-    if time.time() - float(bot.key_users[user][0]) < float(bot.key_users[user][1]):
-        return False, [time.time(), bot.key_users[user][1]]
-    with open('settings/log.json', 'r+') as l:
-        log = json.load(l)
+def user_post(key_users, user):
+    if time.time() - float(key_users[user][0]) < float(key_users[user][1]):
+        return False, [time.time(), key_users[user][1]]
+    else:
+        log = dataIO.load_json("settings/log.json")
         now = time.time()
-        log['keyusers'][user] = [now, bot.key_users[user][1]]
-        log.seek(0)
-        log.truncate()
-        json.dump(log, l, indent=4)
-    return True, [now, bot.key_users[user][1]]
+        log["keyusers"][user] = [now, key_users[user][1]]
+        dataIO.save_json("settings/log.json", log)
+        return True, [now, key_users[user][1]]
 
 
 def gc_clear(gc_time):
@@ -130,27 +131,24 @@ def embed_perms(message):
     return check
 
 
-def get_user(message, user, bot=None):
+def get_user(message, user):
     try:
         member = message.mentions[0]
     except:
         member = message.guild.get_member_named(user)
     if not member:
-        member = message.guild.get_member(user)
-    if not member and bot:
-        for guild in bot.guilds:
-            member = guild.get_member(user)
-            if not member: member = guild.get_member_named(user)
-            if member:
-                break
+        try:
+            member = message.guild.get_member(int(user))
+        except ValueError:
+            pass
     if not member:
-        return False
+        return None
     return member
 
 
 def find_channel(channel_list, text):
     if text.isdigit():
-        found_channel = discord.utils.get(channel_list, id=text)
+        found_channel = discord.utils.get(channel_list, id=int(text))
     elif text.startswith("<#") and text.endswith(">"):
         found_channel = discord.utils.get(channel_list,
                                           id=text.replace("<", "").replace(">", "").replace("#", ""))
@@ -160,16 +158,18 @@ def find_channel(channel_list, text):
 
 
 async def get_google_entries(query):
+    url = 'https://www.google.com/search?q={}'.format(uriquote(query))
     params = {
-        'q': query,
-        'safe': 'off'
+        'safe': 'off',
+        'lr': 'lang_en',
+        'h1': 'en'
     }
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 6.3; Win64; x64)'
     }
     entries = []
     async with aiohttp.ClientSession() as session:
-        async with session.get('https://www.google.com/search', params=params, headers=headers) as resp:
+        async with session.get(url, params=params, headers=headers) as resp:
             if resp.status != 200:
                 config = load_optional_config()
                 async with session.get("https://www.googleapis.com/customsearch/v1?q=" + quote_plus(query) + "&start=" + '1' + "&key=" + config['google_api_key'] + "&cx=" + config['custom_search_engine']) as resp:
